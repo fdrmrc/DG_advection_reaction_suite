@@ -16,5 +16,6 @@ cycle cells  dofs        L2             H1
     5 65536 262144 9.686e-07 2.00 1.718e-03 1.00
 ```
 
+Which confirms the theoretical fact that for uniformly refined meshes and smooth solutions one usually see EOC `p+1`, with `p` the polynomial degree of the finite element. See also the following loglog plot w.r.t the DoFs 
 
-Which confirms the theoretical fact that for uniformly refined meshes and smooth solutions one usually see EOC `p+1`, with `p` the polynomial degree of the finite element.
+![Screenshot](EOC_refined_smooth.png)
