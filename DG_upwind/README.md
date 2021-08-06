@@ -1,4 +1,4 @@
-#DG Upwind [Work still in progress]
+# DG Upwind [Work still in progress]
 
 
 The convergence table obtained by building a smooth manufactured solution `u(x,y)=epx(x) sin(y)` and using:
