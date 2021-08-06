@@ -11,7 +11,8 @@ SET(TARGET_SRC
   #source/base_problem.cc
   #source/base_block_problem.cc
   #source/stokes.cc
-  dg_upwind.cc
+  source/dg_upwind.cc
+  main.cc
   # You can specify additional files here!
 )
 
