@@ -35,9 +35,12 @@
 #include <deal.II/lac/precondition_block.h>
 // We are going to use gradients as refinement indicator.
 #include <deal.II/numerics/derivative_approximation.h>
-
 // Using using the mesh_loop from the MeshWorker framework
 #include <deal.II/meshworker/mesh_loop.h>
+
+
+#include <deal.II/base/convergence_table.h>
+
 
 #include <iostream>
 #include <fstream>
@@ -72,6 +75,8 @@ private: //define usual private members
 
 	Vector<double> solution;
 	Vector<double> right_hand_side;
+
+
 };
 
 #endif /* INCLUDE_DG_UPWIND_H_ */

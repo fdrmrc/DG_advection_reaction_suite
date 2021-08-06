@@ -22,6 +22,52 @@
 
 #include "../include/DG_upwind.h"
 
+static ConvergenceTable convergence_table;
+
+
+template<int dim>
+class RightHandSide: public Function<dim> {
+public:
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const override;
+};
+
+template<int dim>
+double RightHandSide<dim>::value(const Point<dim> &p,
+		const unsigned int component) const {
+	(void) component;
+	return std::exp(p[0]) * (cos(p[1]) * p[0] - sin(p[1]) * p[1]);
+}
+
+template<int dim>
+class Solution: public Function<dim> {
+public:
+	virtual double value(const Point<dim> &p,
+			const unsigned int component = 0) const override;
+
+	virtual Tensor<1,dim> gradient(const Point<dim> & point,
+	           const unsigned int component = 0) const override; //need to provide this so that I can compute H1 norm, using VectorTools namespace
+};
+
+template<int dim>
+double Solution<dim>::value(const Point<dim> &p, const unsigned int) const {
+
+	return std::exp(p[0]) * sin(p[1]); //e^x sin(y)
+}
+
+template<int dim>
+Tensor<1,dim> Solution<dim>::gradient(const Point<dim> & point,
+        const unsigned int component) const {
+
+	(void) component; //suppress warning about unused parameters
+	Tensor<1,dim> sol_grad;
+	const double etpx = std::exp(point[0]);
+	sol_grad[0] = etpx*sin(point[1]);
+	sol_grad[1] = etpx*cos(point[1]);
+	return sol_grad;
+
+}
+
 template<int dim>
 class BoundaryValues: public Function<dim> {
 public:
@@ -40,13 +86,16 @@ void BoundaryValues<dim>::value_list(const std::vector<Point<dim>> &points,
 	AssertIndexRange(component, 1);
 	Assert(values.size() == points.size(),
 			ExcDimensionMismatch(values.size(), points.size()));
-
+	Solution<dim> exact_solution;
 	for (unsigned int i = 0; i < values.size(); ++i) {
-		if (points[i](0) < 0.5)
-			values[i] = 1.;
-		else
-			values[i] = 0.;
+		values[i] = exact_solution.value(points[i]);
 	}
+//	for (unsigned int i = 0; i < values.size(); ++i) {
+//		if (points[i](0) < 0.5)
+//			values[i] = 1.;
+//		else
+//			values[i] = 0.;
+//	}
 }
 
 // Finally, a function that computes and returns the wind field
@@ -62,8 +111,8 @@ Tensor<1, dim> beta(const Point<dim> &p) {
 	wind_field[0] = -p[1];
 	wind_field[1] = p[0];
 
-	if (wind_field.norm() > 1e-10)
-		wind_field /= wind_field.norm();
+//	if (wind_field.norm() > 1e-10)
+//		wind_field /= wind_field.norm();
 
 	return wind_field;
 }
@@ -154,6 +203,7 @@ template<int dim>
 void AdvectionProblem<dim>::assemble_system() {
 	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
 	const BoundaryValues<dim> boundary_function;
+	const RightHandSide<dim> rhs_function;
 
 	// This is the function that will be executed for each cell.
 	const auto cell_worker = [&](const Iterator &cell,
@@ -180,7 +230,10 @@ void AdvectionProblem<dim>::assemble_system() {
 							* fe_v.shape_value(j, point) // \phi_j
 							* JxW[point];                // dx
 				}
-				copy_data.cell_rhs(i) += .0;
+				copy_data.cell_rhs(i) +=
+						rhs_function.value(q_points[point]) // f(x_q)
+						* fe_v.shape_value(i, point) //phi_i(x_q)
+						* JxW[point]; //dx
 			}
 		}
 	};
@@ -312,6 +365,9 @@ void AdvectionProblem<dim>::solve() {
 // an approximation to the gradient of the solution.
 template<int dim>
 void AdvectionProblem<dim>::refine_grid() {
+
+
+	/*
 	// The <code>DerivativeApproximation</code> class computes the gradients to
 	// float precision. This is sufficient as they are approximate and serve as
 	// refinement indicators only.
@@ -332,6 +388,10 @@ void AdvectionProblem<dim>::refine_grid() {
 			gradient_indicator, 0.3, 0.1);
 
 	triangulation.execute_coarsening_and_refinement();
+
+	*/
+
+	triangulation.refine_global(1);
 }
 
 // The output of this program consists of a vtk file of the adaptively
@@ -351,15 +411,55 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 
 	data_out.write_vtk(output);
 
-	{
-		Vector<float> values(triangulation.n_active_cells());
-		VectorTools::integrate_difference(mapping, dof_handler, solution,
-				Functions::ZeroFunction<dim>(), values, quadrature,
-				VectorTools::Linfty_norm);
-		const double l_infty = VectorTools::compute_global_error(triangulation,
-				values, VectorTools::Linfty_norm);
-		std::cout << "  L-infinity norm: " << l_infty << std::endl;
-	}
+	/*{
+	 Vector<float> values(triangulation.n_active_cells());
+	 VectorTools::integrate_difference(mapping, dof_handler, solution,
+	 Functions::ZeroFunction<dim>(), values, quadrature,
+	 VectorTools::Linfty_norm);
+	 const double l_infty = VectorTools::compute_global_error(triangulation,
+	 values, VectorTools::Linfty_norm);
+	 std::cout << "  L-infinity norm: " << l_infty << std::endl;
+	 }*/
+
+
+
+
+
+
+
+
+	  const unsigned int n_active_cells = triangulation.n_active_cells();
+	  const unsigned int n_dofs         = dof_handler.n_dofs();
+
+	  Vector<double> L2_error_per_cell(n_active_cells);
+	  VectorTools::integrate_difference(mapping, dof_handler, solution,
+	  			Solution<dim>(), L2_error_per_cell, quadrature, VectorTools::L2_norm);
+	  const double L2_error = VectorTools::compute_global_error(triangulation, L2_error_per_cell,
+				VectorTools::L2_norm);
+
+	  Vector<double> H1_error_per_cell(n_active_cells);
+	  VectorTools::integrate_difference(mapping,dof_handler,solution,
+			  Solution<dim>(),H1_error_per_cell,quadrature,VectorTools::H1_norm);
+	  const double H1_error = VectorTools::compute_global_error(triangulation, H1_error_per_cell,
+			  VectorTools::H1_norm);
+
+
+
+
+	  convergence_table.add_value("cycle", cycle);
+	  convergence_table.add_value("cells", n_active_cells);
+	  convergence_table.add_value("dofs", n_dofs);
+	  convergence_table.add_value("L2", L2_error);
+	  convergence_table.add_value("H1", H1_error);
+//	  convergence_table.add_value("Linfty", Linfty_error);
+
+
+
+
+
+
+
+
 }
 
 //Usual run functions, running over several refinement cycles
@@ -387,5 +487,22 @@ void AdvectionProblem<dim>::run() {
 
 		output_results(cycle);
 	}
+
+	convergence_table.set_precision("L2", 3);
+	convergence_table.set_precision("H1", 3);
+//	convergence_table.set_precision("Linfty", 3);
+
+	convergence_table.set_scientific("L2", true);
+	convergence_table.set_scientific("H1", true);
+//	convergence_table.set_scientific("Linfty", true);
+
+	convergence_table.evaluate_convergence_rates(
+			"L2", ConvergenceTable::reduction_rate_log2);
+
+	convergence_table.evaluate_convergence_rates(
+			"H1", ConvergenceTable::reduction_rate_log2);
+
+	convergence_table.write_text(std::cout);
+
 }
 
