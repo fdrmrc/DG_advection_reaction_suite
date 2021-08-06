@@ -46,7 +46,6 @@
 #include <fstream>
 
 using namespace dealii;
-
 template<int dim>
 class AdvectionProblem {
 public:
@@ -75,6 +74,7 @@ private: //define usual private members
 
 	Vector<double> solution;
 	Vector<double> right_hand_side;
+	mutable ConvergenceTable convergence_table;
 
 
 };

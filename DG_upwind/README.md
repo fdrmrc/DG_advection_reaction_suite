@@ -1,8 +1,8 @@
 # DG Upwind [Work still in progress]
 
 
-The convergence table obtained by building a smooth manufactured solution `u(x,y)=epx(x) sin(y)` and using:
-- uniformly refined mesh at each cycle, rather than a broken gradient estimator is
+The convergence table obtained by building a smooth manufactured solution `u(x,y)=exp(x) sin(y)` and using:
+- uniformly refined mesh at each cycle, rather than a broken-gradient based estimator 
 - `fe_degree = 1`
 - the r.h.s function, derived from `Function` base class has value `exp(x)*(cos(y)x - sin(y)y)`
 

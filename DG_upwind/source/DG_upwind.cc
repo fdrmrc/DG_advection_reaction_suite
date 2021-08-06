@@ -22,7 +22,7 @@
 
 #include "../include/DG_upwind.h"
 
-static ConvergenceTable convergence_table;
+//static ConvergenceTable convergence_table;
 
 
 template<int dim>
@@ -367,7 +367,7 @@ template<int dim>
 void AdvectionProblem<dim>::refine_grid() {
 
 
-	/*
+
 	// The <code>DerivativeApproximation</code> class computes the gradients to
 	// float precision. This is sufficient as they are approximate and serve as
 	// refinement indicators only.
@@ -389,9 +389,9 @@ void AdvectionProblem<dim>::refine_grid() {
 
 	triangulation.execute_coarsening_and_refinement();
 
-	*/
 
-	triangulation.refine_global(1);
+
+	//triangulation.refine_global(1); //just for testing on uniformly refined meshes
 }
 
 // The output of this program consists of a vtk file of the adaptively
@@ -465,7 +465,7 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 //Usual run functions, running over several refinement cycles
 template<int dim>
 void AdvectionProblem<dim>::run() {
-	for (unsigned int cycle = 0; cycle < 6; ++cycle) {
+	for (unsigned int cycle = 0; cycle < 10; ++cycle) {
 		std::cout << "Cycle " << cycle << std::endl;
 
 		if (cycle == 0) {
@@ -500,7 +500,7 @@ void AdvectionProblem<dim>::run() {
 			"L2", ConvergenceTable::reduction_rate_log2);
 
 	convergence_table.evaluate_convergence_rates(
-			"H1", ConvergenceTable::reduction_rate_log2);
+			"H1", ConvergenceTable::reduction_rate);
 
 	convergence_table.write_text(std::cout);
 
