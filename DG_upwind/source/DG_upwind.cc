@@ -90,12 +90,7 @@ void BoundaryValues<dim>::value_list(const std::vector<Point<dim>> &points,
 	for (unsigned int i = 0; i < values.size(); ++i) {
 		values[i] = exact_solution.value(points[i]);
 	}
-//	for (unsigned int i = 0; i < values.size(); ++i) {
-//		if (points[i](0) < 0.5)
-//			values[i] = 1.;
-//		else
-//			values[i] = 0.;
-//	}
+
 }
 
 // Finally, a function that computes and returns the wind field
@@ -110,7 +105,6 @@ Tensor<1, dim> beta(const Point<dim> &p) {
 	Tensor<1, dim> wind_field;
 	wind_field[0] = -p[1];
 	wind_field[1] = p[0];
-
 //	if (wind_field.norm() > 1e-10)
 //		wind_field /= wind_field.norm();
 
@@ -173,14 +167,59 @@ struct CopyData {
 // <code>fe</code> is the polynomial degree.
 template<int dim>
 AdvectionProblem<dim>::AdvectionProblem() :
-		mapping(), fe(1), dof_handler(triangulation), quadrature(
-				fe.tensor_degree() + 1), quadrature_face(fe.tensor_degree() + 1) {
+		mapping(), dof_handler(triangulation){
+
+	add_parameter("Finite element degree", fe_degree);
+	add_parameter("Exact solution expression", exact_solution_expression);
+	add_parameter("Problem constants", constants);
+	add_parameter("Output filename", output_filename);
+	add_parameter("Use direct solver", use_direct_solver);
+	add_parameter("Number of refinement cycles", n_refinement_cycles);
+	add_parameter("Number of global refinement",n_global_refinements);
+	add_parameter("Global refinement", global_refinement);
+
+//
+//	this->prm.enter_subsection("Error table");
+//	error_table.add_parameters(this->prm);
+//	this->prm.leave_subsection();
+
+
 }
+
+
+template<int dim>
+void AdvectionProblem<dim>::initialize(const std::string& filename){
+
+	ParameterAcceptor::initialize(filename, "", ParameterHandler::Short);
+}
+
+
+template <int dim>
+void
+AdvectionProblem<dim>::parse_string(const std::string &parameters)
+{
+  ParameterAcceptor::prm.parse_input_from_string(parameters);
+  ParameterAcceptor::parse_all_parameters();
+}
+
+
+
+
+
+
 
 template<int dim>
 void AdvectionProblem<dim>::setup_system() {
+
 	// first need to distribute the DoFs.
-	dof_handler.distribute_dofs(fe);
+	if (!fe){
+		fe              = std::make_unique<FE_DGQ<dim>>(fe_degree);
+		const auto vars = dim == 2 ? "x,y" : "x,y,z";
+		exact_solution.initialize(vars, exact_solution_expression, constants);
+	}
+
+
+	dof_handler.distribute_dofs(*fe);
 
 	// To build the sparsity pattern for DG discretizations, we can call the
 	// function analogue to DoFTools::make_sparsity_pattern, which is called
@@ -204,6 +243,11 @@ void AdvectionProblem<dim>::assemble_system() {
 	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
 	const BoundaryValues<dim> boundary_function;
 	const RightHandSide<dim> rhs_function;
+
+	const QGauss<dim> quadrature= fe->tensor_degree() +1;
+	const QGauss<dim - 1> quadrature_face = fe->tensor_degree() +1;
+
+
 
 	// This is the function that will be executed for each cell.
 	const auto cell_worker = [&](const Iterator &cell,
@@ -272,7 +316,7 @@ void AdvectionProblem<dim>::assemble_system() {
 			} else
 				for (unsigned int i = 0; i < n_facet_dofs; ++i)
 					copy_data.cell_rhs(i) += -fe_face.shape_value(i, point) // \phi_i
-					* g[point]                     // g
+					* /*exact_solution.value(q_points[point])*/ g[point]                     // g
 							* beta_dot_n  // \beta . n
 							* JxW[point]; // dx
 		}
@@ -330,7 +374,7 @@ void AdvectionProblem<dim>::assemble_system() {
 		}
 	};
 
-	ScratchData<dim> scratch_data(mapping, fe, quadrature, quadrature_face);
+	ScratchData<dim> scratch_data(mapping, *fe, quadrature, quadrature_face);
 	CopyData copy_data;
 
 	// Here, we finally handle the assembly. We pass in ScratchData and
@@ -345,21 +389,32 @@ void AdvectionProblem<dim>::assemble_system() {
 
 template<int dim>
 void AdvectionProblem<dim>::solve() {
-	SolverControl solver_control(1000, 1e-12);
-	SolverRichardson<Vector<double>> solver(solver_control);
 
-	// Here we create the preconditioner,
-	PreconditionBlockSSOR<SparseMatrix<double>> preconditioner;
+	if (use_direct_solver){
 
-	// then assign the matrix to it and set the right block size:
-	preconditioner.initialize(system_matrix, fe.n_dofs_per_cell());
+		SparseDirectUMFPACK system_matrix_inverse;
+		system_matrix_inverse.initialize(system_matrix);
+		system_matrix_inverse.vmult(solution, right_hand_side);
+	}else{
+		SolverControl solver_control(1000, 1e-15);
+		SolverRichardson<Vector<double>> solver(solver_control);
 
-	// After these preparations we are ready to start the linear solver.
-	solver.solve(system_matrix, solution, right_hand_side, preconditioner);
+		// Here we create the preconditioner,
+		PreconditionBlockSSOR<SparseMatrix<double>> preconditioner;
 
-	std::cout << "  Solver converged in " << solver_control.last_step()
-			<< " iterations." << std::endl;
+		// then assign the matrix to it and set the right block size:
+		preconditioner.initialize(system_matrix, fe->n_dofs_per_cell());
+
+		// After these preparations we are ready to start the linear solver.
+		solver.solve(system_matrix, solution, right_hand_side, preconditioner);
+
+		std::cout << "  Solver converged in " << solver_control.last_step()
+	    					<< " iterations." << std::endl;
+	}
 }
+
+
+
 
 // We refine the grid according to a very simple refinement criterion, namely
 // an approximation to the gradient of the solution.
@@ -371,6 +426,7 @@ void AdvectionProblem<dim>::refine_grid() {
 	// The <code>DerivativeApproximation</code> class computes the gradients to
 	// float precision. This is sufficient as they are approximate and serve as
 	// refinement indicators only.
+	if (!global_refinement){
 	Vector<float> gradient_indicator(triangulation.n_active_cells());
 
 	// Now the approximate gradients are computed
@@ -388,10 +444,9 @@ void AdvectionProblem<dim>::refine_grid() {
 			gradient_indicator, 0.3, 0.1);
 
 	triangulation.execute_coarsening_and_refinement();
-
-
-
-	//triangulation.refine_global(1); //just for testing on uniformly refined meshes
+	}else{
+	triangulation.refine_global(1); //just for testing on uniformly refined meshes
+	}
 }
 
 // The output of this program consists of a vtk file of the adaptively
@@ -411,48 +466,31 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 
 	data_out.write_vtk(output);
 
-	/*{
-	 Vector<float> values(triangulation.n_active_cells());
-	 VectorTools::integrate_difference(mapping, dof_handler, solution,
-	 Functions::ZeroFunction<dim>(), values, quadrature,
-	 VectorTools::Linfty_norm);
-	 const double l_infty = VectorTools::compute_global_error(triangulation,
-	 values, VectorTools::Linfty_norm);
-	 std::cout << "  L-infinity norm: " << l_infty << std::endl;
-	 }*/
+	const unsigned int n_active_cells = triangulation.n_active_cells();
+	const unsigned int n_dofs         = dof_handler.n_dofs();
 
 
-
-
-
-
-
-
-	  const unsigned int n_active_cells = triangulation.n_active_cells();
-	  const unsigned int n_dofs         = dof_handler.n_dofs();
-
-	  Vector<double> L2_error_per_cell(n_active_cells);
-	  VectorTools::integrate_difference(mapping, dof_handler, solution,
-	  			Solution<dim>(), L2_error_per_cell, quadrature, VectorTools::L2_norm);
-	  const double L2_error = VectorTools::compute_global_error(triangulation, L2_error_per_cell,
+	Vector<double> L2_error_per_cell(n_active_cells);
+	VectorTools::integrate_difference(mapping, dof_handler, solution,
+				Solution<dim>(), L2_error_per_cell, QGauss<dim>(fe->tensor_degree()+1), VectorTools::L2_norm);
+	const double L2_error = VectorTools::compute_global_error(triangulation, L2_error_per_cell,
 				VectorTools::L2_norm);
 
-	  Vector<double> H1_error_per_cell(n_active_cells);
-	  VectorTools::integrate_difference(mapping,dof_handler,solution,
-			  Solution<dim>(),H1_error_per_cell,quadrature,VectorTools::H1_norm);
-	  const double H1_error = VectorTools::compute_global_error(triangulation, H1_error_per_cell,
+	Vector<double> H1_error_per_cell(n_active_cells);
+	VectorTools::integrate_difference(mapping,dof_handler,solution,
+			  Solution<dim>(),H1_error_per_cell,QGauss<dim>(fe->tensor_degree()+1),VectorTools::H1_norm);
+	const double H1_error = VectorTools::compute_global_error(triangulation, H1_error_per_cell,
 			  VectorTools::H1_norm);
 
 
 
 
-	  convergence_table.add_value("cycle", cycle);
-	  convergence_table.add_value("cells", n_active_cells);
-	  convergence_table.add_value("dofs", n_dofs);
-	  convergence_table.add_value("L2", L2_error);
-	  convergence_table.add_value("H1", H1_error);
-//	  convergence_table.add_value("Linfty", Linfty_error);
-
+	convergence_table.add_value("cycle", cycle);
+	convergence_table.add_value("cells", n_active_cells);
+	convergence_table.add_value("dofs", n_dofs);
+	convergence_table.add_value("L2", L2_error);
+	convergence_table.add_value("H1", H1_error);
+	//	  convergence_table.add_value("Linfty", Linfty_error);
 
 
 
@@ -462,15 +500,31 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 
 }
 
+
+
+//template<int dim>
+//void AdvectionProblem<dim>::compute_error(){
+//	error_table.error_from_exact(dof_handler, solution, exact_solution);
+//
+//}
+
+
+
+
+
+
+
+
+
 //Usual run functions, running over several refinement cycles
 template<int dim>
 void AdvectionProblem<dim>::run() {
-	for (unsigned int cycle = 0; cycle < 10; ++cycle) {
+	for (unsigned int cycle = 0; cycle < n_refinement_cycles; ++cycle) {
 		std::cout << "Cycle " << cycle << std::endl;
 
 		if (cycle == 0) {
 			GridGenerator::hyper_cube(triangulation);
-			triangulation.refine_global(3);
+			triangulation.refine_global(n_global_refinements);
 		} else
 			refine_grid();
 
@@ -484,25 +538,31 @@ void AdvectionProblem<dim>::run() {
 
 		assemble_system();
 		solve();
-
+//		compute_error();
 		output_results(cycle);
 	}
 
+
+//	std::cout <<"\n" <<"With ParsedConvergenceTable class: "<<"\n";
+//	error_table.output_table(std::cout);
+
+
+
 	convergence_table.set_precision("L2", 3);
 	convergence_table.set_precision("H1", 3);
-//	convergence_table.set_precision("Linfty", 3);
 
 	convergence_table.set_scientific("L2", true);
 	convergence_table.set_scientific("H1", true);
-//	convergence_table.set_scientific("Linfty", true);
 
 	convergence_table.evaluate_convergence_rates(
 			"L2", ConvergenceTable::reduction_rate_log2);
 
 	convergence_table.evaluate_convergence_rates(
-			"H1", ConvergenceTable::reduction_rate);
+			"H1", ConvergenceTable::reduction_rate_log2);
+
 
 	convergence_table.write_text(std::cout);
+
 
 }
 

@@ -1,11 +1,21 @@
 #include "source/DG_upwind.cc"
 
 
-int main()
+int main(int argc, char** argv)
 {
   try
     {
+	  std::string par_name = "";
+	  if (argc > 1){
+	    par_name = argv[1];
+	  }
+//	  deallog.depth_console(2); //solver infos
       AdvectionProblem<2> dgmethod;
+	  if (par_name!=""){
+		 dgmethod.initialize(par_name);
+	  }
+
+
       dgmethod.run();
     }
   catch (std::exception &exc)
@@ -35,4 +45,6 @@ int main()
     }
 
   return 0;
+
+
 }

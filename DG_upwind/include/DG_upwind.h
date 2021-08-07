@@ -33,6 +33,7 @@
 //Solver
 #include <deal.II/lac/solver_richardson.h>
 #include <deal.II/lac/precondition_block.h>
+#include <deal.II/lac/sparse_direct.h>
 // We are going to use gradients as refinement indicator.
 #include <deal.II/numerics/derivative_approximation.h>
 // Using using the mesh_loop from the MeshWorker framework
@@ -41,16 +42,26 @@
 
 #include <deal.II/base/convergence_table.h>
 
+//To enable parameter handling
+#include <deal.II/base/function_parser.h>
+#include <deal.II/base/parameter_acceptor.h>
+#include <deal.II/base/parsed_convergence_table.h>
+#include <deal.II/base/parameter_handler.h>
+
+
+
 
 #include <iostream>
 #include <fstream>
 
 using namespace dealii;
 template<int dim>
-class AdvectionProblem {
+class AdvectionProblem : ParameterAcceptor{
 public:
 	AdvectionProblem();
 	void run();
+	void initialize(const std::string& filename);
+	void parse_string(const std::string& parameters);
 
 private: //define usual private members
 	void setup_system();
@@ -58,23 +69,47 @@ private: //define usual private members
 	void solve();
 	void refine_grid();
 	void output_results(const unsigned int cycle) const;
+//	void compute_error();
 
 	Triangulation<dim> triangulation;
 	const MappingQ1<dim> mapping;
 
 	// Furthermore we want to use DG elements.
-	const FE_DGQ<dim> fe;
+	std::unique_ptr<FE_DGQ<dim>> fe;
 	DoFHandler<dim> dof_handler;
 
-	const QGauss<dim> quadrature;
-	const QGauss<dim - 1> quadrature_face;
 
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
 
 	Vector<double> solution;
 	Vector<double> right_hand_side;
-	mutable ConvergenceTable convergence_table;
+	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
+
+
+	//Parameter handling
+	FunctionParser<dim> exact_solution;
+//	FunctionParser<dim> dirichlet_boundary_condition;
+
+	unsigned int fe_degree = 1;
+
+
+	std::string exact_solution_expression = "exp(x)*sin(y)";
+//	std::string exact_solution_gradient_expression = "exp(x)*sin(y); cos(y)*exp(x)";
+	std::map<std::string, double> constants;
+	std::string  output_filename     = "DG_upwind";
+//	ParsedConvergenceTable error_table;
+
+
+	bool use_direct_solver = true;
+	unsigned int n_refinement_cycles = 6;
+	unsigned int n_global_refinements = 2;
+
+
+
+	bool global_refinement = true;
+
+
 
 
 };

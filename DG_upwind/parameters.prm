@@ -1,0 +1,14 @@
+# Listing of Parameters
+# ---------------------
+subsection AdvectionProblem<2>
+  set Exact solution expression   = exp(x)*sin(y)
+  set Finite element degree       = 1
+  set Global refinement           = true
+  set Number of global refinement = 2
+  set Number of refinement cycles = 6
+  set Output filename             = DG_upwind
+  set Problem constants           = 
+  set Use direct solver           = true
+end
+
+
