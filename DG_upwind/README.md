@@ -19,3 +19,7 @@ cycle cells  dofs        L2             H1
 Which confirms the theoretical fact that for uniformly refined meshes and smooth solutions one usually see EOC `p+1`, with `p` the polynomial degree of the finite element. See also the following loglog plot w.r.t the DoFs 
 
 ![Screenshot](EOC_refined_smooth.png)
+
+Indeed, moving to biquadratic elements we observe the expected behaviour in terms of convergence rates. Notice that with an iterative solver you need to require high accuracy in order to observe the correct rates. Below you can see the desired convergence rate with ´p=2´.
+
+![Screenshot](EOC_refined_smooth_biquadratic.png)
