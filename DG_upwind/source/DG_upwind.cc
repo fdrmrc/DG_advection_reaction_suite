@@ -179,9 +179,9 @@ AdvectionProblem<dim>::AdvectionProblem() :
 	add_parameter("Global refinement", global_refinement);
 
 //
-//	this->prm.enter_subsection("Error table");
-//	error_table.add_parameters(this->prm);
-//	this->prm.leave_subsection();
+	this->prm.enter_subsection("Error table");
+	error_table.add_parameters(this->prm);
+	this->prm.leave_subsection();
 
 
 }
@@ -466,30 +466,30 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 
 	data_out.write_vtk(output);
 
-	const unsigned int n_active_cells = triangulation.n_active_cells();
-	const unsigned int n_dofs         = dof_handler.n_dofs();
+//	const unsigned int n_active_cells = triangulation.n_active_cells();
+//	const unsigned int n_dofs         = dof_handler.n_dofs();
 
-
-	Vector<double> L2_error_per_cell(n_active_cells);
-	VectorTools::integrate_difference(mapping, dof_handler, solution,
-				Solution<dim>(), L2_error_per_cell, QGauss<dim>(fe->tensor_degree()+1), VectorTools::L2_norm);
-	const double L2_error = VectorTools::compute_global_error(triangulation, L2_error_per_cell,
-				VectorTools::L2_norm);
-
-	Vector<double> H1_error_per_cell(n_active_cells);
-	VectorTools::integrate_difference(mapping,dof_handler,solution,
-			  Solution<dim>(),H1_error_per_cell,QGauss<dim>(fe->tensor_degree()+1),VectorTools::H1_norm);
-	const double H1_error = VectorTools::compute_global_error(triangulation, H1_error_per_cell,
-			  VectorTools::H1_norm);
-
-
-
-
-	convergence_table.add_value("cycle", cycle);
-	convergence_table.add_value("cells", n_active_cells);
-	convergence_table.add_value("dofs", n_dofs);
-	convergence_table.add_value("L2", L2_error);
-	convergence_table.add_value("H1", H1_error);
+//
+//	Vector<double> L2_error_per_cell(n_active_cells);
+//	VectorTools::integrate_difference(mapping, dof_handler, solution,
+//				Solution<dim>(), L2_error_per_cell, QGauss<dim>(fe->tensor_degree()+1), VectorTools::L2_norm);
+//	const double L2_error = VectorTools::compute_global_error(triangulation, L2_error_per_cell,
+//				VectorTools::L2_norm);
+//
+//	Vector<double> H1_error_per_cell(n_active_cells);
+//	VectorTools::integrate_difference(mapping,dof_handler,solution,
+//			  Solution<dim>(),H1_error_per_cell,QGauss<dim>(fe->tensor_degree()+1),VectorTools::H1_norm);
+//	const double H1_error = VectorTools::compute_global_error(triangulation, H1_error_per_cell,
+//			  VectorTools::H1_norm);
+//
+//
+//
+////
+//	convergence_table.add_value("cycle", cycle);
+//	convergence_table.add_value("cells", n_active_cells);
+//	convergence_table.add_value("dofs", n_dofs);
+//	convergence_table.add_value("L2", L2_error);
+//	convergence_table.add_value("H1", H1_error);
 	//	  convergence_table.add_value("Linfty", Linfty_error);
 
 
@@ -502,11 +502,12 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 
 
 
-//template<int dim>
-//void AdvectionProblem<dim>::compute_error(){
-//	error_table.error_from_exact(dof_handler, solution, exact_solution);
-//
-//}
+template<int dim>
+void AdvectionProblem<dim>::compute_error(){
+//	error_table.error_from_exact(mapping, dof_handler, solution, exact_solution); //be careful: a FD approximation of the gradient is used to compute the H^1 norm
+	error_table.error_from_exact(mapping, dof_handler, solution, Solution<dim>());
+
+}
 
 
 
@@ -538,17 +539,17 @@ void AdvectionProblem<dim>::run() {
 
 		assemble_system();
 		solve();
-//		compute_error();
+		compute_error();
 		output_results(cycle);
 	}
 
 
-//	std::cout <<"\n" <<"With ParsedConvergenceTable class: "<<"\n";
-//	error_table.output_table(std::cout);
+	std::cout <<"\n" <<"With ParsedConvergenceTable class: "<<"\n";
+	error_table.output_table(std::cout);
 
 
 
-	convergence_table.set_precision("L2", 3);
+	/*convergence_table.set_precision("L2", 3);
 	convergence_table.set_precision("H1", 3);
 
 	convergence_table.set_scientific("L2", true);
@@ -561,7 +562,7 @@ void AdvectionProblem<dim>::run() {
 			"H1", ConvergenceTable::reduction_rate_log2);
 
 
-	convergence_table.write_text(std::cout);
+	convergence_table.write_text(std::cout);*/
 
 
 }

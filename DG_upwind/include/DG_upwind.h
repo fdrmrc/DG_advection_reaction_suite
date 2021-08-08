@@ -69,7 +69,7 @@ private: //define usual private members
 	void solve();
 	void refine_grid();
 	void output_results(const unsigned int cycle) const;
-//	void compute_error();
+	void compute_error();
 
 	Triangulation<dim> triangulation;
 	const MappingQ1<dim> mapping;
@@ -84,21 +84,20 @@ private: //define usual private members
 
 	Vector<double> solution;
 	Vector<double> right_hand_side;
-	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
+//	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
 
 
 	//Parameter handling
 	FunctionParser<dim> exact_solution;
 //	FunctionParser<dim> dirichlet_boundary_condition;
 
-	unsigned int fe_degree = 1;
+	unsigned int fe_degree = 3;
 
 
 	std::string exact_solution_expression = "exp(x)*sin(y)";
-//	std::string exact_solution_gradient_expression = "exp(x)*sin(y); cos(y)*exp(x)";
 	std::map<std::string, double> constants;
 	std::string  output_filename     = "DG_upwind";
-//	ParsedConvergenceTable error_table;
+	ParsedConvergenceTable error_table;
 
 
 	bool use_direct_solver = true;
