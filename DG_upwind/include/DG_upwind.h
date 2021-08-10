@@ -47,7 +47,7 @@
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/parsed_convergence_table.h>
 #include <deal.II/base/parameter_handler.h>
-
+#include <deal.II/base/symbolic_function.h>
 
 
 
@@ -87,14 +87,16 @@ private: //define usual private members
 //	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
 
 
+
 	//Parameter handling
 	FunctionParser<dim> exact_solution;
-//	FunctionParser<dim> dirichlet_boundary_condition;
+	std::unique_ptr<Functions::SymbolicFunction<dim>> fun;
 
 	unsigned int fe_degree = 3;
 
 
-	std::string exact_solution_expression = "exp(x)*sin(y)";
+//	std::string exact_solution_expression = "exp(x)*sin(y)";
+	std::string fun_expression = "exp(x)*sin(y)";
 	std::map<std::string, double> constants;
 	std::string  output_filename     = "DG_upwind";
 	ParsedConvergenceTable error_table;

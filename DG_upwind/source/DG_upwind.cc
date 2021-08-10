@@ -22,6 +22,8 @@
 
 #include "../include/DG_upwind.h"
 
+
+
 //static ConvergenceTable convergence_table;
 
 
@@ -45,8 +47,8 @@ public:
 	virtual double value(const Point<dim> &p,
 			const unsigned int component = 0) const override;
 
-	virtual Tensor<1,dim> gradient(const Point<dim> & point,
-	           const unsigned int component = 0) const override; //need to provide this so that I can compute H1 norm, using VectorTools namespace
+//	virtual Tensor<1,dim> gradient(const Point<dim> & point,
+//	           const unsigned int component = 0) const override; //need to provide this so that I can compute H1 norm, using VectorTools namespace
 };
 
 template<int dim>
@@ -55,18 +57,18 @@ double Solution<dim>::value(const Point<dim> &p, const unsigned int) const {
 	return std::exp(p[0]) * sin(p[1]); //e^x sin(y)
 }
 
-template<int dim>
-Tensor<1,dim> Solution<dim>::gradient(const Point<dim> & point,
-        const unsigned int component) const {
-
-	(void) component; //suppress warning about unused parameters
-	Tensor<1,dim> sol_grad;
-	const double etpx = std::exp(point[0]);
-	sol_grad[0] = etpx*sin(point[1]);
-	sol_grad[1] = etpx*cos(point[1]);
-	return sol_grad;
-
-}
+//template<int dim>
+//Tensor<1,dim> Solution<dim>::gradient(const Point<dim> & point,
+//        const unsigned int component) const {
+//
+//	(void) component; //suppress warning about unused parameters
+//	Tensor<1,dim> sol_grad;
+//	const double etpx = std::exp(point[0]);
+//	sol_grad[0] = etpx*sin(point[1]);
+//	sol_grad[1] = etpx*cos(point[1]);
+//	return sol_grad;
+//
+//}
 
 template<int dim>
 class BoundaryValues: public Function<dim> {
@@ -96,8 +98,7 @@ void BoundaryValues<dim>::value_list(const std::vector<Point<dim>> &points,
 // Finally, a function that computes and returns the wind field
 // $\beta=\beta(\mathbf x)$. As explained in the introduction, we will use a
 // rotational field around the origin in 2d. In 3d, we simply leave the
-// $z$-component unset (i.e., at zero), whereas the function can not be used
-// in 1d in its current implementation:
+// $z$-component unset (i.e., at zero)
 template<int dim>
 Tensor<1, dim> beta(const Point<dim> &p) {
 	Assert(dim >= 2, ExcNotImplemented());
@@ -170,13 +171,14 @@ AdvectionProblem<dim>::AdvectionProblem() :
 		mapping(), dof_handler(triangulation){
 
 	add_parameter("Finite element degree", fe_degree);
-	add_parameter("Exact solution expression", exact_solution_expression);
+//	add_parameter("Exact solution expression", exact_solution_expression);
 	add_parameter("Problem constants", constants);
 	add_parameter("Output filename", output_filename);
 	add_parameter("Use direct solver", use_direct_solver);
 	add_parameter("Number of refinement cycles", n_refinement_cycles);
 	add_parameter("Number of global refinement",n_global_refinements);
 	add_parameter("Global refinement", global_refinement);
+	add_parameter("Fun expression", fun_expression);
 
 //
 	this->prm.enter_subsection("Error table");
@@ -214,8 +216,9 @@ void AdvectionProblem<dim>::setup_system() {
 	// first need to distribute the DoFs.
 	if (!fe){
 		fe              = std::make_unique<FE_DGQ<dim>>(fe_degree);
-		const auto vars = dim == 2 ? "x,y" : "x,y,z";
-		exact_solution.initialize(vars, exact_solution_expression, constants);
+//		const auto vars = dim == 2 ? "x,y" : "x,y,z";
+//		exact_solution.initialize(vars, exact_solution_expression, constants);
+		fun = std::make_unique<Functions::SymbolicFunction<dim>>(fun_expression);
 	}
 
 
@@ -504,8 +507,8 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 
 template<int dim>
 void AdvectionProblem<dim>::compute_error(){
-//	error_table.error_from_exact(mapping, dof_handler, solution, exact_solution); //be careful: a FD approximation of the gradient is used to compute the H^1 norm
-	error_table.error_from_exact(mapping, dof_handler, solution, Solution<dim>());
+	error_table.error_from_exact(mapping, dof_handler, solution, *fun); //be careful: a FD approximation of the gradient is used to compute the H^1 norm if you're not relying on SymbolicFunction class
+//	error_table.error_from_exact(mapping, dof_handler, solution, Solution<dim>()); //provided that Solution<dim> implements the Gradient function
 
 }
 
