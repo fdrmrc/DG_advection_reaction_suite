@@ -1,0 +1,11 @@
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/rebuild_cache.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/edit_cache.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/info.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/strip_comments.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/distclean.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/runclean.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/run.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/release.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/sign.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/debug.dir
+/Users/marcofeder/Desktop/DG_advection/DG_time_dependent/CMakeFiles/DG_upwind_time_dependent.dir

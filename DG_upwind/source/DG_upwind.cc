@@ -179,6 +179,8 @@ AdvectionProblem<dim>::AdvectionProblem() :
 	add_parameter("Number of global refinement",n_global_refinements);
 	add_parameter("Global refinement", global_refinement);
 	add_parameter("Fun expression", fun_expression);
+	add_parameter("Theta", theta);
+
 
 //
 	this->prm.enter_subsection("Error table");
@@ -189,10 +191,21 @@ AdvectionProblem<dim>::AdvectionProblem() :
 }
 
 
+//Simple struct used only for throwing an exception when theta parameter is not okay.
+struct theta_exc{
+	std::string message;
+	theta_exc(std::string&& s):message{std::move(s)}{};
+	const char* what() const { return message.c_str(); }
+
+};
+
 template<int dim>
-void AdvectionProblem<dim>::initialize(const std::string& filename){
+void AdvectionProblem<dim>::initialize_params(const std::string& filename){
 
 	ParameterAcceptor::initialize(filename, "", ParameterHandler::Short);
+	if(theta<0.0 || theta> 10.0 || std::abs(theta)<1e-12){
+		throw(theta_exc("Theta parameter is not in range: see Brezzi, Marini, Suli paper for an extended discussion"));
+	}
 }
 
 
@@ -352,9 +365,9 @@ void AdvectionProblem<dim>::assemble_system() {
 			for (unsigned int i = 0; i < n_dofs; ++i)
 				for (unsigned int j = 0; j < n_dofs; ++j)
 					copy_data_face.cell_matrix(i, j) += fe_iv.jump(i, qpoint) // [\phi_i]
-					* fe_iv.shape_value((beta_dot_n > 0), j, qpoint) // phi_j^{upwind}
-							* beta_dot_n                          // (\beta . n)
-							* JxW[qpoint];                                 // dx
+					* /*fe_iv.shape_value((beta_dot_n > 0), j, qpoint) // phi_j^{upwind}*/
+					(beta_dot_n*fe_iv.average(j, qpoint) + theta*std::abs(beta_dot_n)*fe_iv.jump(j, qpoint))                          // (\beta . n)
+					* JxW[qpoint];                                 // dx
 		}
 	};
 

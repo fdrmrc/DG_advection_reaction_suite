@@ -60,7 +60,7 @@ class AdvectionProblem : ParameterAcceptor{
 public:
 	AdvectionProblem();
 	void run();
-	void initialize(const std::string& filename);
+	void initialize_params(const std::string& filename);
 	void parse_string(const std::string& parameters);
 
 private: //define usual private members
@@ -105,6 +105,7 @@ private: //define usual private members
 	bool use_direct_solver = true;
 	unsigned int n_refinement_cycles = 6;
 	unsigned int n_global_refinements = 2;
+	double theta = 0.5; //default is 0.5 so that I have classical upwind flux
 
 
 

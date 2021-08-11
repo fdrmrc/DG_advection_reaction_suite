@@ -3,6 +3,7 @@
 
 int main(int argc, char** argv)
 {
+
   try
     {
 	  std::string par_name = "";
@@ -12,7 +13,7 @@ int main(int argc, char** argv)
 //	  deallog.depth_console(2); //solver infos
       AdvectionProblem<2> dgmethod;
 	  if (par_name!=""){
-		 dgmethod.initialize(par_name);
+		 dgmethod.initialize_params(par_name);
 	  }
 
 
@@ -31,6 +32,18 @@ int main(int argc, char** argv)
                 << std::endl;
       return 1;
     }
+  catch(const theta_exc& theta_range){
+      std::cerr << std::endl
+                << std::endl
+                << "----------------------------------------------------"
+                << std::endl;
+      std::cerr << "Exception on processing: " << std::endl
+                << theta_range.what() << std::endl
+                << "Aborting!" << std::endl
+                << "----------------------------------------------------"
+                << std::endl;
+      return 1;
+  }
   catch (...)
     {
       std::cerr << std::endl
