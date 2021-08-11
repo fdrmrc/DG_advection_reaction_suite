@@ -204,7 +204,7 @@ void AdvectionProblem<dim>::initialize_params(const std::string& filename){
 
 	ParameterAcceptor::initialize(filename, "", ParameterHandler::Short);
 	if(theta<0.0 || theta> 10.0 || std::abs(theta)<1e-12){
-		throw(theta_exc("Theta parameter is not in range: see Brezzi, Marini, Suli paper for an extended discussion"));
+		throw(theta_exc("Theta parameter is not in a suitable range: see Brezzi, Marini, Suli paper for an extended discussion"));
 	}
 }
 
