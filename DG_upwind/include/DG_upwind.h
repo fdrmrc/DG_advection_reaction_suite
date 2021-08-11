@@ -92,7 +92,7 @@ private: //define usual private members
 	FunctionParser<dim> exact_solution;
 	std::unique_ptr<Functions::SymbolicFunction<dim>> fun;
 
-	unsigned int fe_degree = 3;
+	unsigned int fe_degree = 3; //high order only for convergence tests
 
 
 //	std::string exact_solution_expression = "exp(x)*sin(y)";
