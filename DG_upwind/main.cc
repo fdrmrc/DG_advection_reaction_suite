@@ -1,4 +1,4 @@
-#include "source/DG_upwind.cc"
+#include "include/DG_upwind.h"
 
 
 int main(int argc, char** argv)

@@ -22,24 +22,19 @@
 
 #include "../include/DG_upwind.h"
 
-
-
-//static ConvergenceTable convergence_table;
-
-
-template<int dim>
-class RightHandSide: public Function<dim> {
-public:
-	virtual double value(const Point<dim> &p,
-			const unsigned int component = 0) const override;
-};
-
-template<int dim>
-double RightHandSide<dim>::value(const Point<dim> &p,
-		const unsigned int component) const {
-	(void) component;
-	return std::exp(p[0]) * (cos(p[1]) * p[0] - sin(p[1]) * p[1]);
-}
+//template<int dim>
+//class RightHandSide: public Function<dim> {
+//public:
+//	virtual double value(const Point<dim> &p,
+//			const unsigned int component = 0) const override;
+//};
+//
+//template<int dim>
+//double RightHandSide<dim>::value(const Point<dim> &p,
+//		const unsigned int component) const {
+//	(void) component;
+//	return std::exp(p[0]) * (cos(p[1]) * p[0] - sin(p[1]) * p[1]) + advection_coefficient*std::exp(p[0])*sin(p[1]);
+//}
 
 template<int dim>
 class Solution: public Function<dim> {
@@ -171,40 +166,32 @@ AdvectionProblem<dim>::AdvectionProblem() :
 		mapping(), dof_handler(triangulation){
 
 	add_parameter("Finite element degree", fe_degree);
-//	add_parameter("Exact solution expression", exact_solution_expression);
 	add_parameter("Problem constants", constants);
 	add_parameter("Output filename", output_filename);
 	add_parameter("Use direct solver", use_direct_solver);
 	add_parameter("Number of refinement cycles", n_refinement_cycles);
 	add_parameter("Number of global refinement",n_global_refinements);
 	add_parameter("Global refinement", global_refinement);
-	add_parameter("Fun expression", fun_expression);
+	add_parameter("Fun expression", fun_expression); //used only to test convegence rates
 	add_parameter("Theta", theta);
+	add_parameter("Advection coefficient", advection_coefficient);
+	add_parameter("Right hand side expression", rhs_expression);
 
-
-//
+	//
 	this->prm.enter_subsection("Error table");
 	error_table.add_parameters(this->prm);
 	this->prm.leave_subsection();
-
-
+		
 }
 
 
-//Simple struct used only for throwing an exception when theta parameter is not okay.
-struct theta_exc{
-	std::string message;
-	theta_exc(std::string&& s):message{std::move(s)}{};
-	const char* what() const { return message.c_str(); }
-
-};
 
 template<int dim>
 void AdvectionProblem<dim>::initialize_params(const std::string& filename){
 
 	ParameterAcceptor::initialize(filename, "", ParameterHandler::Short);
 	if(theta<0.0 || theta> 10.0 || std::abs(theta)<1e-12){
-		throw(theta_exc("Theta parameter is not in a suitable range: see Brezzi, Marini, Suli paper for an extended discussion"));
+		throw(theta_exc("Theta parameter is not in a suitable range: see paper by Brezzi, Marini, Suli for an extended discussion"));
 	}
 }
 
@@ -229,8 +216,9 @@ void AdvectionProblem<dim>::setup_system() {
 	// first need to distribute the DoFs.
 	if (!fe){
 		fe              = std::make_unique<FE_DGQ<dim>>(fe_degree);
-//		const auto vars = dim == 2 ? "x,y" : "x,y,z";
-//		exact_solution.initialize(vars, exact_solution_expression, constants);
+		const auto vars = dim == 2 ? "x,y" : "x,y,z";
+		//		exact_solution.initialize(vars, exact_solution_expression, constants);
+		rhs.initialize(vars, rhs_expression, constants);
 		fun = std::make_unique<Functions::SymbolicFunction<dim>>(fun_expression);
 	}
 
@@ -258,18 +246,17 @@ template<int dim>
 void AdvectionProblem<dim>::assemble_system() {
 	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
 	const BoundaryValues<dim> boundary_function;
-	const RightHandSide<dim> rhs_function;
+	//	const RightHandSide<dim> rhs_function;
 
-	const QGauss<dim> quadrature= fe->tensor_degree() +1;
-	const QGauss<dim - 1> quadrature_face = fe->tensor_degree() +1;
-
-
+	const QGauss<dim> quadrature = fe->tensor_degree() + 1;
+	const QGauss<dim - 1> quadrature_face = fe->tensor_degree() + 1;
 
 	// This is the function that will be executed for each cell.
 	const auto cell_worker = [&](const Iterator &cell,
-			ScratchData<dim> &scratch_data, CopyData &copy_data) {
+								 ScratchData<dim> &scratch_data, CopyData &copy_data)
+	{
 		const unsigned int n_dofs =
-				scratch_data.fe_values.get_fe().n_dofs_per_cell();
+			scratch_data.fe_values.get_fe().n_dofs_per_cell();
 		copy_data.reinit(cell, n_dofs);
 		scratch_data.fe_values.reinit(cell);
 
@@ -281,19 +268,28 @@ void AdvectionProblem<dim>::assemble_system() {
 		// We solve a homogeneous equation, thus no right hand side shows up in
 		// the cell term.  What's left is integrating the matrix entries.
 		for (unsigned int point = 0; point < fe_v.n_quadrature_points;
-				++point) {
+			 ++point)
+		{
 			auto beta_q = beta(q_points[point]);
-			for (unsigned int i = 0; i < n_dofs; ++i) {
-				for (unsigned int j = 0; j < n_dofs; ++j) {
-					copy_data.cell_matrix(i, j) += -beta_q             // -\beta
-					* fe_v.shape_grad(i, point)  // \nabla \phi_i
-							* fe_v.shape_value(j, point) // \phi_j
-							* JxW[point];                // dx
+			for (unsigned int i = 0; i < n_dofs; ++i)
+			{
+				for (unsigned int j = 0; j < n_dofs; ++j)
+				{
+					copy_data.cell_matrix(i, j) += (-beta_q							 // -\beta
+														* fe_v.shape_grad(i, point)	 // \nabla \phi_i
+														* fe_v.shape_value(j, point) // \phi_j
+													+
+													advection_coefficient *			 //gamma
+														fe_v.shape_value(i, point)	 //phi_i
+														* fe_v.shape_value(j, point) //phi_j
+													) *
+												   JxW[point]; // dx
 				}
 				copy_data.cell_rhs(i) +=
-						rhs_function.value(q_points[point]) // f(x_q)
-						* fe_v.shape_value(i, point) //phi_i(x_q)
-						* JxW[point]; //dx
+					/*rhs_function.value(q_points[point]) */
+					rhs.value(q_points[point])	 // f(x_q)
+					* fe_v.shape_value(i, point) //phi_i(x_q)
+					* JxW[point];				 //dx
 			}
 		}
 	};
@@ -481,39 +477,6 @@ void AdvectionProblem<dim>::output_results(const unsigned int cycle) const {
 	data_out.build_patches(mapping);
 
 	data_out.write_vtk(output);
-
-//	const unsigned int n_active_cells = triangulation.n_active_cells();
-//	const unsigned int n_dofs         = dof_handler.n_dofs();
-
-//
-//	Vector<double> L2_error_per_cell(n_active_cells);
-//	VectorTools::integrate_difference(mapping, dof_handler, solution,
-//				Solution<dim>(), L2_error_per_cell, QGauss<dim>(fe->tensor_degree()+1), VectorTools::L2_norm);
-//	const double L2_error = VectorTools::compute_global_error(triangulation, L2_error_per_cell,
-//				VectorTools::L2_norm);
-//
-//	Vector<double> H1_error_per_cell(n_active_cells);
-//	VectorTools::integrate_difference(mapping,dof_handler,solution,
-//			  Solution<dim>(),H1_error_per_cell,QGauss<dim>(fe->tensor_degree()+1),VectorTools::H1_norm);
-//	const double H1_error = VectorTools::compute_global_error(triangulation, H1_error_per_cell,
-//			  VectorTools::H1_norm);
-//
-//
-//
-////
-//	convergence_table.add_value("cycle", cycle);
-//	convergence_table.add_value("cells", n_active_cells);
-//	convergence_table.add_value("dofs", n_dofs);
-//	convergence_table.add_value("L2", L2_error);
-//	convergence_table.add_value("H1", H1_error);
-	//	  convergence_table.add_value("Linfty", Linfty_error);
-
-
-
-
-
-
-
 }
 
 
@@ -562,24 +525,8 @@ void AdvectionProblem<dim>::run() {
 
 	std::cout <<"\n" <<"With ParsedConvergenceTable class: "<<"\n";
 	error_table.output_table(std::cout);
-
-
-
-	/*convergence_table.set_precision("L2", 3);
-	convergence_table.set_precision("H1", 3);
-
-	convergence_table.set_scientific("L2", true);
-	convergence_table.set_scientific("H1", true);
-
-	convergence_table.evaluate_convergence_rates(
-			"L2", ConvergenceTable::reduction_rate_log2);
-
-	convergence_table.evaluate_convergence_rates(
-			"H1", ConvergenceTable::reduction_rate_log2);
-
-
-	convergence_table.write_text(std::cout);*/
-
-
+	
 }
 
+template class AdvectionProblem<2>;
+template class AdvectionProblem<3>;

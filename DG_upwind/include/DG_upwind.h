@@ -54,6 +54,18 @@
 #include <iostream>
 #include <fstream>
 
+// template <typename Integral>
+// class DG_upwind_Tester;
+
+//Simple struct used only for throwing an exception when theta parameter is not okay.
+struct theta_exc{
+	std::string message;
+	theta_exc(std::string&& s):message{std::move(s)}{};
+	const char* what() const { return message.c_str(); }
+
+};
+
+
 using namespace dealii;
 template<int dim>
 class AdvectionProblem : ParameterAcceptor{
@@ -63,7 +75,8 @@ public:
 	void initialize_params(const std::string& filename);
 	void parse_string(const std::string& parameters);
 
-private: //define usual private members
+	//private: //define usual private members
+protected:
 	void setup_system();
 	void assemble_system();
 	void solve();
@@ -86,34 +99,30 @@ private: //define usual private members
 	Vector<double> right_hand_side;
 //	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
 
-
-
 	//Parameter handling
 	FunctionParser<dim> exact_solution;
+	FunctionParser<dim> rhs;
 	std::unique_ptr<Functions::SymbolicFunction<dim>> fun;
 
 	unsigned int fe_degree = 3; //high order only for convergence tests
 
-
-//	std::string exact_solution_expression = "exp(x)*sin(y)";
 	std::string fun_expression = "exp(x)*sin(y)";
 	std::map<std::string, double> constants;
-	std::string  output_filename     = "DG_upwind";
+	std::string output_filename = "DG_upwind";
 	ParsedConvergenceTable error_table;
-
 
 	bool use_direct_solver = true;
 	unsigned int n_refinement_cycles = 6;
 	unsigned int n_global_refinements = 2;
+	bool global_refinement = true;
 	double theta = 0.5; //default is 0.5 so that I have classical upwind flux
 
+	double advection_coefficient = 0.0; //no reaction term
 
+	std::string rhs_expression = "exp(x)*(x*cos(y) - y*sin(y)) +" + std::to_string(advection_coefficient) + "*exp(x)*sin(y)";
 
-	bool global_refinement = true;
-
-
-
-
+	template <typename Integral>
+	friend class DG_upwind_Tester;   
 };
 
 #endif /* INCLUDE_DG_UPWIND_H_ */
