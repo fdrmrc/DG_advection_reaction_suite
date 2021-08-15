@@ -20,6 +20,16 @@ Which confirms the theoretical fact that for uniformly refined meshes and smooth
 
 ![Screenshot](EOC_refined_smooth.png)
 
-Indeed, moving to biquadratic elements we observe the expected behaviour in terms of convergence rates. Notice that with an iterative solver you need to require high accuracy in order to observe the correct rates. Below you can see the desired convergence rate with ´p=2´.
+Indeed, moving to biquadratic elements we observe the expected behaviour in terms of convergence rates. Notice that with an iterative solver you need to require high accuracy in order to observe the correct rates. Below you can see the desired convergence rate with `p=2`.
 
 ![Screenshot](EOC_refined_smooth_biquadratic.png)
+
+
+# Testing 
+
+A GoogleTest framework has been chosen. In particular, it performs some convergence checks for different degrees, also in the advection reaction case, using a smooth manufactured solution. You can run those tests with `ctest` from command line. The produced output will be like, where only 3 tests are performed. 
+
+![Screenshot](ctest_output.png)
+
+
+You can add/change tests just by changing the `DG_upwind_tester.cc` file accordingly.
