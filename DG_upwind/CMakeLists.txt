@@ -11,7 +11,8 @@ SET(TARGET_SRC
   #source/base_problem.cc
   #source/base_block_problem.cc
   #source/stokes.cc
-  source/dg_upwind.cc
+  source/DG_upwind.cc
+  # include/DG_upwind.h
   main.cc
   # You can specify additional files here!
 )
@@ -52,3 +53,37 @@ ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 PROJECT(${TARGET})
 DEAL_II_INVOKE_AUTOPILOT()
+
+
+###############
+
+PROJECT(gtest)
+
+FIND_PACKAGE(deal.II 9.3.0 REQUIRED
+HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
+
+
+DEAL_II_INITIALIZE_CACHED_VARIABLES()
+
+# Fix warning on mac
+SET(CMAKE_MACOSX_RPATH 1)
+
+# Executable for the exerciese
+ADD_EXECUTABLE(poisson source/dg_upwind.cc main.cc)
+DEAL_II_SETUP_TARGET(poisson)
+
+# Library of the executable
+ADD_LIBRARY(dg_upwind-lib SHARED $<TARGET_OBJECTS:poisson>)
+DEAL_II_SETUP_TARGET(dg_upwind-lib)
+
+# Tester executable
+FIND_PACKAGE(GTest)
+FILE(GLOB test_files tests/*cc)
+ADD_EXECUTABLE(gtest ${test_files})
+TARGET_LINK_LIBRARIES(gtest ${GTEST_LIBRARY} dg_upwind-lib)   
+DEAL_II_SETUP_TARGET(gtest)
+
+INCLUDE_DIRECTORIES(${GTEST_INCLUDE_DIRS} ./include/)
+
+ENABLE_TESTING()
+GTEST_DISCOVER_TESTS(gtest)
