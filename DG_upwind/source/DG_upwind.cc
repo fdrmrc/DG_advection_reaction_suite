@@ -711,9 +711,11 @@ void AdvectionProblem<dim>::run()
 	for (unsigned int i = 0; i < n_refinement_cycles; ++i)
 	{
 		std::cout << "Cycle " << i << "\t" << energy_errors[i] << "\t";
-		i >= 1 ? rate_energy.push_back(2.0 * std::log2(energy_errors[i - 1] / energy_errors[i]) / std::log2(dofs_hist[i] / dofs_hist[i - 1])) : rate_energy.push_back(.0);
+		i >= 1 ? rate_energy.push_back(dim* std::log2(energy_errors[i - 1] / energy_errors[i]) / std::log2(dofs_hist[i] / dofs_hist[i - 1])) : rate_energy.push_back(.0);
 		std::cout << rate_energy[i] << "\n";
 	}
+
+
 }
 
 template class AdvectionProblem<2>;

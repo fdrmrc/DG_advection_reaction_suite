@@ -102,7 +102,7 @@ protected:
 
 	Vector<double> solution;
 	Vector<double> right_hand_side;
-//	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
+	// mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
 	Vector<double> energy_norm_square_per_cell;
 
 
@@ -122,7 +122,7 @@ protected:
 
 	bool use_direct_solver = true;
 	unsigned int n_refinement_cycles = 6;
-	unsigned int n_global_refinements = 2;
+	unsigned int n_global_refinements = 1;
 	bool global_refinement = true;
 	double theta = 0.5; //default is 0.5 so that I have classical upwind flux
 
