@@ -51,6 +51,10 @@
 
 
 
+#include <deal.II/meshworker/copy_data.h>
+#include <deal.II/meshworker/mesh_loop.h>
+#include <deal.II/meshworker/scratch_data.h>
+
 #include <iostream>
 #include <fstream>
 
@@ -83,6 +87,7 @@ protected:
 	void refine_grid();
 	void output_results(const unsigned int cycle) const;
 	void compute_error();
+	double compute_energy_norm();
 
 	Triangulation<dim> triangulation;
 	const MappingQ1<dim> mapping;
@@ -98,11 +103,15 @@ protected:
 	Vector<double> solution;
 	Vector<double> right_hand_side;
 //	mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
+	Vector<double> energy_norm_square_per_cell;
+
 
 	//Parameter handling
 	FunctionParser<dim> exact_solution;
 	FunctionParser<dim> rhs;
 	std::unique_ptr<Functions::SymbolicFunction<dim>> fun;
+
+
 
 	unsigned int fe_degree = 3; //high order only for convergence tests
 
