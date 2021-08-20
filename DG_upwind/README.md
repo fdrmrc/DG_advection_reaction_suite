@@ -25,6 +25,20 @@ Indeed, moving to biquadratic elements we observe the expected behaviour in term
 ![Screenshot](EOC_refined_smooth_biquadratic.png)
 
 
+
+
+# Energy norm 
+
+It's interesting to check that the a-priori error estimate in the energy norm is fulfilled. Hereafter we can see the correct `p+1/2` rate with biquadratic elements. It's worth mentioning that the terms in the sum have been assembled using the WorkStream namespace, as done in the assembly function. On the top of that, it's necessary to consider internal faces and boundary ones separately.
+
+
+
+
+![Screenshot](EOC_refined_energy_biquadratic.png)
+ 
+
+
+
 # Testing 
 
 A GoogleTest framework has been chosen. In particular, it performs some convergence checks for different degrees, also in the advection reaction case, using a smooth manufactured solution. You can run those tests with `ctest` from command line. The produced output will be like, where only 3 tests are performed. 
