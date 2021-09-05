@@ -91,7 +91,12 @@ void BoundaryValues<dim>::value_list(const std::vector<Point<dim>> &points,
 	for (unsigned int i = 0; i < values.size(); ++i)
 	{
 		values[i] = exact_solution.value(points[i]);
+		// if (points[i](0) < 0.5)
+		// 	values[i] = 1.;
+		// else
+		// 	values[i] = 0.;
 	}
+
 }
 
 // Finally, a function that computes and returns the wind field
@@ -201,7 +206,7 @@ AdvectionProblem<dim>::AdvectionProblem() : mapping(), dof_handler(triangulation
 	add_parameter("Number of refinement cycles", n_refinement_cycles);
 	add_parameter("Number of global refinement", n_global_refinements);
 	add_parameter("Global refinement", global_refinement);
-	add_parameter("Fun expression", fun_expression); //used only to test convegence rates
+	add_parameter("Fun expression", exact_solution_expression); //used only to test convegence rates
 	add_parameter("Theta", theta);
 	add_parameter("Advection coefficient", advection_coefficient);
 	add_parameter("Right hand side expression", rhs_expression);
@@ -241,7 +246,7 @@ void AdvectionProblem<dim>::setup_system()
 		const auto vars = dim == 2 ? "x,y" : "x,y,z";
 		//		exact_solution.initialize(vars, exact_solution_expression, constants);
 		rhs.initialize(vars, rhs_expression, constants);
-		fun = std::make_unique<Functions::SymbolicFunction<dim>>(fun_expression);
+		fun = std::make_unique<Functions::SymbolicFunction<dim>>(exact_solution_expression);
 	}
 
 	dof_handler.distribute_dofs(*fe);
@@ -391,13 +396,17 @@ void AdvectionProblem<dim>::assemble_system()
 			{
 				for (unsigned int j = 0; j < n_dofs; ++j)
 				{
-					copy_data_face.cell_matrix(i, j) += fe_iv.jump(i, qpoint)																		   // [\phi_i]
-														*																							   /*fe_iv.shape_value((beta_dot_n > 0), j, qpoint) // phi_j^{upwind}*/
-														(beta_dot_n * fe_iv.average(j, qpoint) + theta * std::abs(beta_dot_n) * fe_iv.jump(j, qpoint)) // flux formulation: see paper
-														* JxW[qpoint];																				   // dx
+					copy_data_face.cell_matrix(i, j) += (beta(q_points[qpoint]) * normals[qpoint] * fe_iv.average(j, qpoint) * fe_iv.jump(i, qpoint) +
+														 theta * std::abs(beta_dot_n) * fe_iv.jump(j, qpoint) * fe_iv.jump(i, qpoint)) *
+														JxW[qpoint];
+
+														// beta(q_points[qpoint])*normals[qpoint]*
+														// fe_iv.average(j,qpoint)*  								//UNSTABLE formulation
+														// fe_iv.jump(i,qpoint)*
+														// JxW[qpoint];
 				}
 				// auto a  = fe_iv.shape_value(true, i,qpoint) - fe_iv.shape_value(false, i,qpoint);
-				// std::cout << fe_iv.jump(i,qpoint) << "\t"<< a <<"\n"; //check that the jump do what it has to do!
+				// std::cout << fe_iv.jump(i,qpoint) << "\t"<< a <<"\n"; //check that the jump does what it has to do!
 			}
 		}
 	};
@@ -557,7 +566,7 @@ double AdvectionProblem<dim>::compute_energy_norm()
 			const double diff = (sol_u[point] - (*fun).value(q_points[point]));
 			error_square_norm += diff * diff * JxW[point];
 		}
-		copy_data.value = error_square_norm;
+		copy_data.value += error_square_norm;
 	};
 
 	//Working on interior faces
@@ -570,7 +579,6 @@ double AdvectionProblem<dim>::compute_energy_norm()
 								 ScratchData<dim> &scratch_data,
 								 CopyData &copy_data)
 	{
-		// const FEInterfaceValues<dim> &fe_iv = scratch_data.fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
 
 		FEInterfaceValues<dim> &fe_iv = scratch_data.fe_interface_values;
 		fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
@@ -597,10 +605,11 @@ double AdvectionProblem<dim>::compute_energy_norm()
 			error_jump_square += beta_dot_n * jump[point] * jump[point] * JxW[point];
 		}
 
-		copy_data.value = error_jump_square;
+		copy_data_face.values[0] = error_jump_square;
+		copy_data_face.values[1] = copy_data_face.values[0];
 	};
 
-	//Working on faces
+	//Working on boundary faces
 	const auto boundary_worker = [&](const Iterator &cell,
 									 const unsigned int &face_no,
 									 ScratchData<dim> &scratch_data,
@@ -628,7 +637,7 @@ double AdvectionProblem<dim>::compute_energy_norm()
 			const double diff = (g[point] - sol_u[point]);
 			difference_norm_square += beta_dot_n * diff * diff * JxW[point];
 		}
-		copy_data.value = difference_norm_square;
+		copy_data.value += difference_norm_square;
 	};
 
 	const auto copier = [&](const auto &copy_data)
@@ -643,10 +652,6 @@ double AdvectionProblem<dim>::compute_energy_norm()
 				energy_norm_square_per_cell[cdf.cell_indices[j]] += cdf.values[j];
 	};
 
-	//   const UpdateFlags cell_flags =   update_gradients | update_quadrature_points | update_JxW_values;
-	//   UpdateFlags face_flags = update_values | update_quadrature_points | update_JxW_values;
-	// const QGauss<dim> quadrature_overintegration = fe->tensor_degree() + 1;
-	// const QGauss<dim - 1> face_quadrature_overintegration = fe->tensor_degree() + 1;
 
 	ScratchData<dim> scratch_data(mapping, *fe, QGauss<dim>{fe->tensor_degree() + 1},
 								  QGauss<dim - 1>{fe->tensor_degree() + 1});
@@ -711,11 +716,9 @@ void AdvectionProblem<dim>::run()
 	for (unsigned int i = 0; i < n_refinement_cycles; ++i)
 	{
 		std::cout << "Cycle " << i << "\t" << energy_errors[i] << "\t";
-		i >= 1 ? rate_energy.push_back(dim* std::log2(energy_errors[i - 1] / energy_errors[i]) / std::log2(dofs_hist[i] / dofs_hist[i - 1])) : rate_energy.push_back(.0);
+		i >= 1 ? rate_energy.push_back(dim * std::log2(energy_errors[i - 1] / energy_errors[i]) / std::log2(dofs_hist[i] / dofs_hist[i - 1])) : rate_energy.push_back(.0);
 		std::cout << rate_energy[i] << "\n";
 	}
-
-
 }
 
 template class AdvectionProblem<2>;

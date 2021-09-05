@@ -13,7 +13,7 @@ The parameters like theta, degree of the elements, refining strategy, and so on 
 The a-priori estimate in energy norm is optimal and holds for every penalty function s.t. `c_e >= theta*|beta * n|` where `theta` is a positive constant, independent of the edge `e` and the diameter of each cell. In the loglot plot below, the correct rates can be observed in the case `p=2`. Indeed, we have order `2+0.5 = 2.5` w.r.t `h`, hence we have the slope `1.25` if we plot against the number of DoFs. More details can be found in the README file of that folder.
 
 
-![Screenshot](DG_Upwind/EOC_refined_energy_biquadratic.png)
+![Screenshot](DG_upwind/EOC_refined_energy_biquadratic.png)
 
 
 # A-posteriori error estimator for first order hyperbolic problems

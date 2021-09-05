@@ -115,7 +115,7 @@ protected:
 
 	unsigned int fe_degree = 3; //high order only for convergence tests
 
-	std::string fun_expression = "exp(x)*sin(y)";
+	std::string exact_solution_expression = "exp(x)*sin(y)";
 	std::map<std::string, double> constants;
 	std::string output_filename = "DG_upwind";
 	ParsedConvergenceTable error_table;
