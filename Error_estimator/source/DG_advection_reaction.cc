@@ -94,7 +94,6 @@
 // 	}
 // }
 
-
 // template <int dim>
 // void BoundaryValues<dim>::value_list(const std::vector<Point<dim>> &points,
 //                                      std::vector<double> &          values,
@@ -114,19 +113,22 @@
 // }
 
 // Finally, a function that computes and returns the wind field
-// $\beta=\beta(\mathbf x)$. As explained in the introduction, we will use a
-// rotational field around the origin in 2d. In 3d, we simply leave the
-// $z$-component unset (i.e., at zero)
+// $\beta=\beta(\mathbf x)$.
 template <int dim>
 Tensor<1, dim> beta(const Point<dim> &p)
 {
 	Assert(dim >= 2, ExcNotImplemented());
-	(void) p; 
+	(void)p;
 	Tensor<1, dim> wind_field;
-	wind_field[0] = 1.0;//-p[1];
+	wind_field[0] = 1.0;//;1.0;//-p[1];
 	wind_field[1] = 1.0;//p[0];
-		// if (wind_field.norm() > 1e-10)
-		// 	wind_field /= wind_field.norm();
+
+	// const double r{std::sqrt(p[0]*p[0] + p[1]*p[1])};
+	// wind_field[0] = -r*std::sin(std::atan2(p[1],p[0]));
+	// wind_field[1] = +r*std::cos(std::atan2(p[1],p[0]));
+
+	// if (wind_field.norm() > 1e-10)
+	// 	wind_field /= wind_field.norm();
 
 	return wind_field;
 }
@@ -179,18 +181,22 @@ struct CopyData
 	double value_estimator;
 	unsigned int cell_index;
 
-
 	FullMatrix<double> cell_mass_matrix;
 	Vector<double> cell_mass_rhs;
+
+	FullMatrix<double> cell_reconstruction_matrix;
+	Vector<double> cell_reconstruction_rhs;
 
 	template <class Iterator>
 	void reinit(const Iterator &cell, unsigned int dofs_per_cell)
 	{
 		cell_matrix.reinit(dofs_per_cell, dofs_per_cell);
-		cell_mass_matrix.reinit(dofs_per_cell,dofs_per_cell);
+		cell_mass_matrix.reinit(dofs_per_cell, dofs_per_cell);
+		cell_reconstruction_matrix.reinit(dofs_per_cell, dofs_per_cell);
 
 		cell_rhs.reinit(dofs_per_cell);
 		cell_mass_rhs.reinit(dofs_per_cell);
+		cell_reconstruction_rhs.reinit(dofs_per_cell); //TODO
 
 		local_dof_indices.resize(dofs_per_cell);
 		cell->get_dof_indices(local_dof_indices);
@@ -218,7 +224,10 @@ void get_function_jump(const FEInterfaceValues<dim> &fe_iv,
 // We start with the constructor. The 1 in the constructor call of
 // <code>fe</code> is the polynomial degree.
 template <int dim>
-AdvectionReaction<dim>::AdvectionReaction() : mapping(), dof_handler(triangulation)
+AdvectionReaction<dim>::AdvectionReaction() : mapping(),
+											  dof_handler(triangulation)/*,
+											  dof_handler_continuous(triangulation),
+											  fe_continuous(1)*/
 {
 
 	add_parameter("Finite element degree", fe_degree);
@@ -229,8 +238,9 @@ AdvectionReaction<dim>::AdvectionReaction() : mapping(), dof_handler(triangulati
 	add_parameter("Number of global refinement", n_global_refinements);
 	add_parameter("Refinement", refinement);
 	add_parameter("Exact solution expression", exact_solution_expression); //used only to test convegence rates
+	add_parameter("Boundary conditions expression", boundary_conditions_expression); //used only to test convegence rates
 	add_parameter("Theta", theta);
-	add_parameter("Advection coefficient", advection_coefficient);
+	add_parameter("Advection coefficient expression", advection_coefficient_expression);
 	add_parameter("Right hand side expression", rhs_expression);
 
 	//
@@ -268,11 +278,11 @@ void AdvectionReaction<dim>::setup_system()
 		const auto vars = dim == 2 ? "x,y" : "x,y,z";
 		exact_solution.initialize(vars, exact_solution_expression, constants);
 		rhs.initialize(vars, rhs_expression, constants);
-		// fun = std::make_unique<Functions::SymbolicFunction<dim>>(fun_expression);
-		// fun.initialize(vars,fun_expression,constants);
+		advection_coeff.initialize(vars,advection_coefficient_expression,constants);
+		boundary_conditions.initialize(vars,boundary_conditions_expression,constants);
 	}
-
 	dof_handler.distribute_dofs(*fe);
+	// dof_handler_continuous.distribute_dofs(fe_continuous);
 
 	// To build the sparsity pattern for DG discretizations, we can call the
 	// function analogue to DoFTools::make_sparsity_pattern, which is called
@@ -306,7 +316,14 @@ void AdvectionReaction<dim>::assemble_system()
 	const auto cell_worker = [&](const Iterator &cell,
 								 ScratchData<dim> &scratch_data, CopyData &copy_data)
 	{
+		FEValues<dim> fe_values_continuous(*fe,
+										   quadrature,
+										   update_values | update_gradients |
+											   update_quadrature_points | update_JxW_values);
+
 		const unsigned int n_dofs = scratch_data.fe_values.get_fe().n_dofs_per_cell();
+		// std::cout << n_dofs << "sulla cella"
+		// 		  << "\t" << fe_values_continuous.dofs_per_cell << "\n";
 		copy_data.reinit(cell, n_dofs);
 		scratch_data.fe_values.reinit(cell);
 
@@ -329,7 +346,7 @@ void AdvectionReaction<dim>::assemble_system()
 														* fe_v.shape_grad(i, point)	 // \nabla \phi_i
 														* fe_v.shape_value(j, point) // \phi_j
 													+
-													advection_coefficient *			 //gamma
+													advection_coeff.value(q_points[point]) *			 //gamma
 														fe_v.shape_value(i, point)	 //phi_i
 														* fe_v.shape_value(j, point) //phi_j
 													) *
@@ -381,10 +398,10 @@ void AdvectionReaction<dim>::assemble_system()
 			}
 			else
 				for (unsigned int i = 0; i < n_facet_dofs; ++i)
-					copy_data.cell_rhs(i) += -fe_face.shape_value(i, point)						  // \phi_i
-											 * g[point] /*fun->value(q_points[point])*/ /*g[point]*/ // g*/
-											 * beta_dot_n										  // \beta . n
-											 * JxW[point];										  // dx
+					copy_data.cell_rhs(i) += -fe_face.shape_value(i, point) // \phi_i
+											 * g[point]						// g*/
+											 * beta_dot_n					// \beta . n
+											 * JxW[point];					// dx
 		}
 	};
 
@@ -404,6 +421,7 @@ void AdvectionReaction<dim>::assemble_system()
 		CopyDataFace &copy_data_face = copy_data.face_data.back();
 
 		const unsigned int n_dofs = fe_iv.n_current_interface_dofs();
+		// std::cout << n_dofs << "sulla faccia" <<"\n";
 		copy_data_face.joint_dof_indices = fe_iv.get_interface_dof_indices();
 
 		copy_data_face.cell_matrix.reinit(n_dofs, n_dofs);
@@ -418,10 +436,14 @@ void AdvectionReaction<dim>::assemble_system()
 			{
 				for (unsigned int j = 0; j < n_dofs; ++j)
 				{
-					copy_data_face.cell_matrix(i, j) += fe_iv.jump(i, qpoint)																		   // [\phi_i]
-														*																							   /*fe_iv.shape_value((beta_dot_n > 0), j, qpoint) // phi_j^{upwind}*/
-														(beta_dot_n * fe_iv.average(j, qpoint) + theta * std::abs(beta_dot_n) * fe_iv.jump(j, qpoint)) // flux formulation: see paper
-														* JxW[qpoint];																				   // dx
+					copy_data_face.cell_matrix(i, j) += (beta(q_points[qpoint]) * normals[qpoint] * fe_iv.average(j, qpoint) * fe_iv.jump(i, qpoint) +
+														 theta * std::abs(beta_dot_n) * fe_iv.jump(j, qpoint) * fe_iv.jump(i, qpoint)) *
+														JxW[qpoint];
+																				   // dx
+
+					/*fe_iv.jump(i, qpoint)																		   // [\phi_i]
+														*fe_iv.shape_value((beta_dot_n > 0), j, qpoint) // phi_j^{upwind}
+														*JxW[qpoint];																				   // dx*/
 				}
 				// auto a  = fe_iv.shape_value(true, i,qpoint) - fe_iv.shape_value(false, i,qpoint);
 				// std::cout << fe_iv.jump(i,qpoint) << "\t"<< a <<"\n"; //check that the jump do what it has to do!
@@ -498,30 +520,19 @@ template <int dim>
 void AdvectionReaction<dim>::refine_grid()
 {
 
-	// The <code>DerivativeApproximation</code> class computes the gradients to
-	// float precision. This is sufficient as they are approximate and serve as
-	// refinement indicators only.
-	// if (!global_refinement)
-	// {
-
-	// }
-	// else
-	// {
-		
-	// }
-
-	if(refinement=="residual"){
+	if (refinement == "residual")
+	{
 		// for(auto& x: error_indicator_per_cell){
 		// 	std::cout << x <<"\n";
 		// }
 		compute_local_projection_and_estimate();
 		const double refinement_fraction = 0.3;
-		GridRefinement::refine_and_coarsen_fixed_number(
-		triangulation, error_indicator_per_cell, refinement_fraction, 0.1);
+		GridRefinement::refine_and_coarsen_fixed_number(triangulation, error_indicator_per_cell, refinement_fraction, 0.1);
 		triangulation.execute_coarsening_and_refinement();
-		std::cout << error_indicator_per_cell.l2_norm() <<"\n";
-
-	}else if(refinement=="gradient"){
+		std::cout << error_indicator_per_cell.l2_norm() << "\n";
+	}
+	else if (refinement == "gradient")
+	{
 
 		Vector<float> gradient_indicator(triangulation.n_active_cells());
 
@@ -536,16 +547,20 @@ void AdvectionReaction<dim>::refine_grid()
 													  1 + 1.0 * dim / 2);
 
 		// Finally they serve as refinement indicator.
-		GridRefinement::refine_and_coarsen_fixed_number(triangulation,
-														gradient_indicator, 0.3, 0.1);
+		GridRefinement::refine_and_coarsen_fixed_fraction(triangulation,
+														  gradient_indicator, 0.25, 0.0);
 
 		triangulation.execute_coarsening_and_refinement();
-	}else if(refinement=="global"){
-		triangulation.refine_global(1); //just for testing on uniformly refined meshes	
-	}else{
+		std::cout << gradient_indicator.l2_norm() << "\n";
+	}
+	else if (refinement == "global")
+	{
+		triangulation.refine_global(1); //just for testing on uniformly refined meshes
+	}
+	else
+	{
 		Assert(false, ExcInternalError());
 	}
-
 }
 
 // The output of this program consists of a vtk file of the adaptively
@@ -571,180 +586,282 @@ template <int dim>
 void AdvectionReaction<dim>::compute_error()
 {
 	error_table.error_from_exact(mapping, dof_handler, solution, exact_solution); //be careful: a FD approximation of the gradient is used to compute the H^1 norm if you're not relying on SymbolicFunction class
-																		//	error_table.error_from_exact(mapping, dof_handler, solution, Solution<dim>()); //provided that Solution<dim> implements the Gradient function
+																				  //	error_table.error_from_exact(mapping, dof_handler, solution, Solution<dim>()); //provided that Solution<dim> implements the Gradient function
 }
 
-// template <int dim>
-// double AdvectionReaction<dim>::compute_energy_norm()
-// {
+template <int dim>
+double AdvectionReaction<dim>::compute_energy_norm()
+{
 
-// 	energy_norm_square_per_cell.reinit(triangulation.n_active_cells());
+	energy_norm_square_per_cell.reinit(triangulation.n_active_cells());
 
-// 	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
-// 	//Working on a single cell K
-// 	const auto cell_worker = [&](const Iterator &cell,
-// 								 ScratchData<dim> &scratch_data, CopyData &copy_data)
-// 	{
-// 		const unsigned int n_dofs =
-// 			scratch_data.fe_values.get_fe().n_dofs_per_cell();
-// 		copy_data.reinit(cell, n_dofs);
-// 		scratch_data.fe_values.reinit(cell);
+	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
+	//Working on a single cell K
+	const auto cell_worker = [&](const Iterator &cell,
+								 ScratchData<dim> &scratch_data, CopyData &copy_data)
+	{
+		const unsigned int n_dofs =
+			scratch_data.fe_values.get_fe().n_dofs_per_cell();
+		copy_data.reinit(cell, n_dofs);
+		scratch_data.fe_values.reinit(cell);
 
-// 		copy_data.cell_index = cell->active_cell_index();
+		copy_data.cell_index = cell->active_cell_index();
 
-// 		const auto &q_points = scratch_data.fe_values.get_quadrature_points();
-// 		const FEValues<dim> &fe_v = scratch_data.fe_values;
-// 		const std::vector<double> &JxW = fe_v.get_JxW_values();
+		const auto &q_points = scratch_data.fe_values.get_quadrature_points();
+		const FEValues<dim> &fe_v = scratch_data.fe_values;
+		const std::vector<double> &JxW = fe_v.get_JxW_values();
 
-// 		double error_square_norm{0.0};
-// 		std::vector<double> sol_u(fe_v.n_quadrature_points);
-// 		fe_v.get_function_values(solution, sol_u);
+		double error_square_norm{0.0};
+		std::vector<double> sol_u(fe_v.n_quadrature_points);
+		fe_v.get_function_values(solution, sol_u);
 
-// 		for (unsigned int point = 0; point < fe_v.n_quadrature_points; ++point)
-// 		{
-// 			const double diff = (sol_u[point] - (*fun).value(q_points[point]));
-// 			error_square_norm += diff * diff * JxW[point];
-// 		}
-// 		copy_data.value = error_square_norm;
-// 	};
+		for (unsigned int point = 0; point < fe_v.n_quadrature_points; ++point)
+		{
+			const double diff = (sol_u[point] - exact_solution.value(q_points[point]));
+			error_square_norm += diff * diff * JxW[point];
+		}
+		copy_data.value = error_square_norm;
+	};
 
-// 	//Working on interior faces
-// 	const auto face_worker = [&](const Iterator &cell,
-// 								 const unsigned int &f,
-// 								 const unsigned int &sf,
-// 								 const Iterator &ncell,
-// 								 const unsigned int &nf,
-// 								 const unsigned int &nsf,
-// 								 ScratchData<dim> &scratch_data,
-// 								 CopyData &copy_data)
-// 	{
-// 		// const FEInterfaceValues<dim> &fe_iv = scratch_data.fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
+	//Working on interior faces
+	const auto face_worker = [&](const Iterator &cell,
+								 const unsigned int &f,
+								 const unsigned int &sf,
+								 const Iterator &ncell,
+								 const unsigned int &nf,
+								 const unsigned int &nsf,
+								 ScratchData<dim> &scratch_data,
+								 CopyData &copy_data)
+	{
+		// const FEInterfaceValues<dim> &fe_iv = scratch_data.fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
 
-// 		FEInterfaceValues<dim> &fe_iv = scratch_data.fe_interface_values;
-// 		fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
+		FEInterfaceValues<dim> &fe_iv = scratch_data.fe_interface_values;
+		fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
 
-// 		copy_data.face_data.emplace_back();
-// 		CopyDataFace &copy_data_face = copy_data.face_data.back();
-// 		copy_data_face.cell_indices[0] = cell->active_cell_index();
-// 		copy_data_face.cell_indices[1] = ncell->active_cell_index();
+		copy_data.face_data.emplace_back();
+		CopyDataFace &copy_data_face = copy_data.face_data.back();
+		copy_data_face.cell_indices[0] = cell->active_cell_index();
+		copy_data_face.cell_indices[1] = ncell->active_cell_index();
 
-// 		const auto &q_points = fe_iv.get_quadrature_points();
-// 		const unsigned n_q_points = q_points.size();
-// 		const std::vector<double> &JxW = fe_iv.get_JxW_values();
-// 		std::vector<double> g(n_q_points);
+		const auto &q_points = fe_iv.get_quadrature_points();
+		const unsigned n_q_points = q_points.size();
+		const std::vector<double> &JxW = fe_iv.get_JxW_values();
+		std::vector<double> g(n_q_points);
 
-// 		std::vector<double> jump(n_q_points);
-// 		get_function_jump(fe_iv, solution, jump);
+		std::vector<double> jump(n_q_points);
+		get_function_jump(fe_iv, solution, jump);
 
-// 		const std::vector<Tensor<1, dim>> &normals = fe_iv.get_normal_vectors();
+		const std::vector<Tensor<1, dim>> &normals = fe_iv.get_normal_vectors();
 
-// 		double error_jump_square{0.0};
-// 		for (unsigned int point = 0; point < n_q_points; ++point)
-// 		{
-// 			const double beta_dot_n = theta * std::abs(beta(q_points[point]) * normals[point]);
-// 			error_jump_square += beta_dot_n * jump[point] * jump[point] * JxW[point];
-// 		}
+		double error_jump_square{0.0};
+		for (unsigned int point = 0; point < n_q_points; ++point)
+		{
+			const double beta_dot_n = theta * std::abs(beta(q_points[point]) * normals[point]);
+			error_jump_square += beta_dot_n * jump[point] * jump[point] * JxW[point];
+		}
 
-// 		copy_data.value = error_jump_square;
-// 	};
+		copy_data.value = error_jump_square;
+	};
 
-// 	//Working on faces
-// 	const auto boundary_worker = [&](const Iterator &cell,
-// 									 const unsigned int &face_no,
-// 									 ScratchData<dim> &scratch_data,
-// 									 CopyData &copy_data)
-// 	{
-// 		scratch_data.fe_interface_values.reinit(cell, face_no);
-// 		const FEFaceValuesBase<dim> &fe_fv = scratch_data.fe_interface_values.get_fe_face_values(0);
-// 		const auto &q_points = fe_fv.get_quadrature_points();
-// 		const unsigned n_q_points = q_points.size();
-// 		const std::vector<double> &JxW = fe_fv.get_JxW_values();
+	//Working on faces
+	const auto boundary_worker = [&](const Iterator &cell,
+									 const unsigned int &face_no,
+									 ScratchData<dim> &scratch_data,
+									 CopyData &copy_data)
+	{
+		scratch_data.fe_interface_values.reinit(cell, face_no);
+		const FEFaceValuesBase<dim> &fe_fv = scratch_data.fe_interface_values.get_fe_face_values(0);
+		const auto &q_points = fe_fv.get_quadrature_points();
+		const unsigned n_q_points = q_points.size();
+		const std::vector<double> &JxW = fe_fv.get_JxW_values();
 
-// 		std::vector<double> g(n_q_points);
-// 		const BoundaryValues<dim> boundary_function;
-// 		boundary_function.value_list(q_points, g);
+		std::vector<double> g(n_q_points);
+		// const BoundaryValues<dim> boundary_function;
+		// boundary_function.value_list(q_points, g);
 
-// 		std::vector<double> sol_u(n_q_points);
-// 		fe_fv.get_function_values(solution, sol_u);
+		std::vector<double> sol_u(n_q_points);
+		fe_fv.get_function_values(solution, sol_u);
 
-// 		const std::vector<Tensor<1, dim>> &normals = fe_fv.get_normal_vectors();
+		const std::vector<Tensor<1, dim>> &normals = fe_fv.get_normal_vectors();
 
-// 		double difference_norm_square = 0.;
-// 		for (unsigned int point = 0; point < q_points.size(); ++point)
-// 		{
-// 			const double beta_dot_n = theta * std::abs(beta(q_points[point]) * normals[point]);
-// 			const double diff = (g[point] - sol_u[point]);
-// 			difference_norm_square += beta_dot_n * diff * diff * JxW[point];
-// 		}
-// 		copy_data.value = difference_norm_square;
-// 	};
+		double difference_norm_square = 0.;
+		for (unsigned int point = 0; point < q_points.size(); ++point)
+		{
+			const double beta_dot_n = theta * std::abs(beta(q_points[point]) * normals[point]);
+			const double diff = (boundary_conditions.value(q_points[point]) - sol_u[point]);
+			difference_norm_square += beta_dot_n * diff * diff * JxW[point];
+		}
+		copy_data.value = difference_norm_square;
+	};
 
-// 	const auto copier = [&](const auto &copy_data)
-// 	{
-// 		if (copy_data.cell_index != numbers::invalid_unsigned_int)
-// 		{
-// 			// std::cout << copy_data.cell_index << "\n";
-// 			energy_norm_square_per_cell[copy_data.cell_index] += copy_data.value;
-// 		}
-// 		for (auto &cdf : copy_data.face_data)
-// 			for (unsigned int j = 0; j < 2; ++j)
-// 				energy_norm_square_per_cell[cdf.cell_indices[j]] += cdf.values[j];
-// 	};
+	const auto copier = [&](const auto &copy_data)
+	{
+		if (copy_data.cell_index != numbers::invalid_unsigned_int)
+		{
+			// std::cout << copy_data.cell_index << "\n";
+			energy_norm_square_per_cell[copy_data.cell_index] += copy_data.value;
+		}
+		for (auto &cdf : copy_data.face_data)
+			for (unsigned int j = 0; j < 2; ++j)
+				energy_norm_square_per_cell[cdf.cell_indices[j]] += cdf.values[j];
+	};
 
-// 	//   const UpdateFlags cell_flags =   update_gradients | update_quadrature_points | update_JxW_values;
-// 	//   UpdateFlags face_flags = update_values | update_quadrature_points | update_JxW_values;
-// 	// const QGauss<dim> quadrature_overintegration = fe->tensor_degree() + 1;
-// 	// const QGauss<dim - 1> face_quadrature_overintegration = fe->tensor_degree() + 1;
+	//   const UpdateFlags cell_flags =   update_gradients | update_quadrature_points | update_JxW_values;
+	//   UpdateFlags face_flags = update_values | update_quadrature_points | update_JxW_values;
+	// const QGauss<dim> quadrature_overintegration = fe->tensor_degree() + 1;
+	// const QGauss<dim - 1> face_quadrature_overintegration = fe->tensor_degree() + 1;
 
-// 	ScratchData<dim> scratch_data(mapping, *fe, QGauss<dim>{fe->tensor_degree() + 1},
-// 								  QGauss<dim - 1>{fe->tensor_degree() + 1});
- 
-// 	CopyData copy_data;
+	ScratchData<dim> scratch_data(mapping, *fe, QGauss<dim>{fe->tensor_degree() + 1},
+								  QGauss<dim - 1>{fe->tensor_degree() + 1});
 
-// 	MeshWorker::mesh_loop(dof_handler.begin_active(),
-// 						  dof_handler.end(),
-// 						  cell_worker,
-// 						  copier,
-// 						  scratch_data,
-// 						  copy_data,
-// 						  MeshWorker::assemble_own_cells |
-// 							  MeshWorker::assemble_own_interior_faces_once |
-// 							  MeshWorker::assemble_boundary_faces,
-// 						  boundary_worker,
-// 						  face_worker);
+	CopyData copy_data;
 
-// 	const double energy_error = std::sqrt(energy_norm_square_per_cell.l1_norm());
-// 	return energy_error;
+	MeshWorker::mesh_loop(dof_handler.begin_active(),
+						  dof_handler.end(),
+						  cell_worker,
+						  copier,
+						  scratch_data,
+						  copy_data,
+						  MeshWorker::assemble_own_cells |
+							  MeshWorker::assemble_own_interior_faces_once |
+							  MeshWorker::assemble_boundary_faces,
+						  boundary_worker,
+						  face_worker);
+
+	const double energy_error = std::sqrt(energy_norm_square_per_cell.l1_norm());
+	return energy_error;
+}
+
+template <int dim>
+void AdvectionReaction<dim>::compute_reconstruction_over_cell(const Iterator &cell)
+{
+
+	const QGauss<dim> quadrature = fe->tensor_degree() + 1;
+	const QGauss<dim - 1> quadrature_face = fe->tensor_degree() + 1;
+	std::cout << "sono entrato qui"
+			  << "\n";
+
+	// const unsigned int n_q_points      = quadrature.size();
+	// const unsigned int n_face_q_points = quadrature_face.size();
+	// const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
+
+	FEValues<dim> fe_values(*fe,
+							quadrature,
+							update_values | update_gradients |
+								update_quadrature_points | update_JxW_values);
+
+	std::cout << "sono entrato quo"
+			  << "\n";
+	FEInterfaceValues<dim> fe_iv(*fe,
+								 quadrature_face,
+								 update_values | update_quadrature_points |
+									 update_normal_vectors |
+									 update_JxW_values);
+
+	// const FEFaceValuesBase<dim>& fe_fv = fe_iv.get_fe_face_values(0);
+
+	fe_values.reinit(cell);
+	const auto &q_points = fe_values.get_quadrature_points();
+	std::cout << "sono entrato qua"
+			  << "\n";
+	const unsigned int n_q_points = q_points.size();
+	const unsigned int dofs_per_cell = fe_values.dofs_per_cell;
+	std::vector<Tensor<1, dim>> gradient_sol_u_at_quadrature_points(fe_values.n_quadrature_points);
+	fe_values.get_function_gradients(solution, gradient_sol_u_at_quadrature_points);
+
+	FullMatrix<double> cell_matrix_a(dofs_per_cell, dofs_per_cell);
+	Vector<double> cell_rhs(dofs_per_cell);
+
+	cell_matrix_a = 0.;
+	cell_rhs = 0.;
+
+	for (unsigned int point = 0; point < n_q_points; ++point)
+	{
+		for (unsigned int i = 0; i < dofs_per_cell; ++i)
+		{
+			for (unsigned int j = 0; j < dofs_per_cell; ++j)
+			{
+				cell_matrix_a(i, j) += beta(q_points[point]) *
+									 fe_values.shape_grad(j, point) *
+									 fe_values.shape_value(i, point) *
+									 fe_values.JxW(point);
+			}
+			cell_rhs(i) += beta(q_points[point]) *
+						   gradient_sol_u_at_quadrature_points[point] *
+						   fe_values.shape_value(i, point) *
+						   fe_values.JxW(point);
+		}
+	}
+
+	for (const auto &face : cell->face_iterators())
+	{
+		if (!(face->at_boundary()))
+		{ //not a boundary face
+			std::cout << face->at_boundary() << "\n";
+			fe_iv.reinit(cell, cell->face_iterator_to_index(face));
+			const auto &q_points_face = fe_iv.get_quadrature_points();
+			const unsigned n_face_q_points = q_points_face.size();
+			const unsigned int n_dofs = fe_iv.n_current_interface_dofs();
+
+			// std::vector<double> jump(n_face_q_points);
+			// get_function_jump(fe_iv, solution, jump);
+
+			const std::vector<Tensor<1, dim>> &normals = fe_iv.get_normal_vectors();
+			for (unsigned int point = 0; point < n_face_q_points; ++point)
+			{
+				const double beta_dot_n = beta(q_points[point]) * normals[point];
+				for (unsigned int i = 0; i < n_dofs; ++i)
+				{
+					cell_rhs(i) += beta_dot_n *
+								   // jump[point]*
+								   fe_iv.shape_value(true, i, point) *
+								   fe_iv.JxW(point);
+				}
+			}
+		}
+	}
+
+	std::cout << "determinante è: " << cell_matrix_a.determinant() << "\n";
+	// for(const auto& x : cell_matrix){
+	// 	std::cout << x<<"\n";
+	// }
+	// std::cout << "\n";
+	// FullMatrix<double> inverse(cell_matrix.m(), cell_matrix.m());
+	// inverse.invert(cell_matrix);
+	// Vector<double> u_reconstruct(cell_matrix.m());
+	// inverse.vmult(u_reconstruct, cell_rhs); //A^{-1}*rhs = u_rec
+}
+
 // }
 
 template <int dim>
-void AdvectionReaction<dim>::compute_local_projection_and_estimate(){
+void AdvectionReaction<dim>::compute_local_projection_and_estimate()
+{
 
-
+	//Working over one single cell
+	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
 	error_indicator_per_cell.reinit(triangulation.n_active_cells());
 
-	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
 	const auto cell_worker = [&](const Iterator &cell,
 								 ScratchData<dim> &scratch_data, CopyData &copy_data)
 	{
 		const unsigned int n_dofs = scratch_data.fe_values.get_fe().n_dofs_per_cell();
-		
-		
+
 		copy_data.reinit(cell, n_dofs);
 		scratch_data.fe_values.reinit(cell);
 		copy_data.cell_index = cell->active_cell_index();
 
-
 		const auto &q_points = scratch_data.fe_values.get_quadrature_points();
 		const unsigned n_q_points = q_points.size();
-
 
 		const FEValues<dim> &fe_v = scratch_data.fe_values;
 		const std::vector<double> &JxW = fe_v.get_JxW_values();
 
-
 		std::vector<double> sol_u_at_quadrature_points(fe_v.n_quadrature_points);
 		fe_v.get_function_values(solution, sol_u_at_quadrature_points);
+
+		std::vector<Tensor<1, dim>> gradient_sol_u_at_quadrature_points(fe_v.n_quadrature_points);
+		fe_v.get_function_gradients(solution, gradient_sol_u_at_quadrature_points);
 
 		//Compute local L^2 projection of f-cU_h over the local finite element space
 		for (unsigned int point = 0; point < n_q_points; ++point)
@@ -754,52 +871,159 @@ void AdvectionReaction<dim>::compute_local_projection_and_estimate(){
 				for (unsigned int j = 0; j < n_dofs; ++j)
 				{
 					// std::cout << "Hey"<<"\n";
-					copy_data.cell_mass_matrix(i,j)+=fe_v.shape_value(i,point)* //phi_i(x_q)
-													fe_v.shape_value(j,point)* //phi_j(x_q)
-												   	JxW[point]; // dx(x_q)
+					copy_data.cell_mass_matrix(i, j) += fe_v.shape_value(i, point) * //phi_i(x_q)
+														fe_v.shape_value(j, point) * //phi_j(x_q)
+														JxW[point];					 // dx(x_q)
+
+					// copy_data.cell_reconstruction_matrix(i, j) += beta(q_points[point]) *
+					// 											  fe_v.shape_grad(j, point) *
+					// 											  fe_v.shape_value(i, point) *
+					// 											  JxW[point];
 				}
 				copy_data.cell_mass_rhs(i) +=
-					(rhs.value(q_points[point])	 // f(x_q)
-					* fe_v.shape_value(i, point) //phi_i(x_q)
-					-
+					(rhs.value(q_points[point])		  // f(x_q)
+						 * fe_v.shape_value(i, point) //phi_i(x_q)
+					 -
+						
+						advection_coeff.value(q_points[point])
+					 	*fe_v.shape_value(i, point)				 //phi_i(x_q)
+						 * sol_u_at_quadrature_points[point] //U_h(x_q)
 
-					fe_v.shape_value(i,point) //phi_i(x_q)
-					*sol_u_at_quadrature_points[point] //U_h(x_q)
-					)
-					* JxW[point];				 //dx
+					- beta(q_points[point])
+					* gradient_sol_u_at_quadrature_points[point]
+					*fe_v.shape_value(i,point)
+					 ) *
+					JxW[point]; //dx
+
+				// copy_data.cell_reconstruction_rhs(i)+=beta(q_points[point])*
+				// 										gradient_sol_u_at_quadrature_points[point]*
+				// 										fe_v.shape_value(i,point)*
+				// 										JxW[point];
 			}
 		}
 
-		FullMatrix<double> inverse(fe_v.n_quadrature_points,fe_v.n_quadrature_points);
+		FullMatrix<double> inverse(fe_v.n_quadrature_points, fe_v.n_quadrature_points);
 		inverse.invert(copy_data.cell_mass_matrix);
 		Vector<double> proj(fe_v.n_quadrature_points); //projection of (f-c*U_h) on the local fe_space
-		inverse.vmult(proj,copy_data.cell_mass_rhs); //M^{-1}*rhs = proj
+		inverse.vmult(proj, copy_data.cell_mass_rhs);  //M^{-1}*rhs = proj
+		// std::cout << "determinante è: " << copy_data.cell_reconstruction_matrix.determinant() << "\n";
 
 		// std::cout << copy_data.cell_index <<"\n";
 		// FullMatrix<double> test(fe_v.n_quadrature_points, fe_v.n_quadrature_points);
 		// inverse.mmult(test,copy_data.cell_mass_matrix);
 		// for(auto& x : test){
-		// 	std::cout << x <<"\n";
+		// 	if(x>=1.2){std::cout << x <<"\n";};
 		// }
+		// std::cout << "determinante: "<<copy_data.cell_reconstruction_matrix.determinant() <<"\n";
 
-		double square_over_cells = 0.0;
-		for(unsigned int point=0;point<n_q_points; ++point){
-			const double diff = rhs.value(q_points[point]) - sol_u_at_quadrature_points[point] 
-								- proj[point];
-			square_over_cells += diff*diff*JxW[point];
+		double square_norm_over_cell = 0.0;
+		for (unsigned int point = 0; point < n_q_points; ++point)
+		{
+			const double diff = rhs.value(q_points[point]) - sol_u_at_quadrature_points[point] - beta(q_points[point])*gradient_sol_u_at_quadrature_points[point] - proj[point];
+			square_norm_over_cell += diff * diff * JxW[point];
 		}
-		copy_data.value_estimator = square_over_cells;
-
-		
-
+		copy_data.value_estimator = square_norm_over_cell;
 	};
 
+	//Working over boundary face
+	const auto boundary_worker = [&](const Iterator &cell,
+									 const unsigned int &face_no,
+									 ScratchData<dim> &scratch_data,
+									 CopyData &copy_data)
+	{
+		scratch_data.fe_interface_values.reinit(cell, face_no);
+		const FEFaceValuesBase<dim> &fe_fv = scratch_data.fe_interface_values.get_fe_face_values(0);
+		const auto &q_points = fe_fv.get_quadrature_points();
+		const unsigned n_q_points = q_points.size();
+		const std::vector<double> &JxW = fe_fv.get_JxW_values();
+
+		std::vector<double> g(n_q_points);
+		exact_solution.value_list(q_points, g);
+
+		std::vector<double> sol_u(n_q_points);
+		fe_fv.get_function_values(solution, sol_u);
+
+		const std::vector<Tensor<1, dim>> &normals = fe_fv.get_normal_vectors();
+
+		double square_norm_over_bdary_face = 0.;
+		for (unsigned int point = 0; point < q_points.size(); ++point)
+		{
+			const double beta_dot_n = beta(q_points[point]) * normals[point];
+
+			if (beta_dot_n < 0) //\partial_{-T} \cap \partial_{- \Omega}
+			{
+				const double diff = std::abs(beta_dot_n) * (g[point] - sol_u[point]);
+				square_norm_over_bdary_face += diff * diff * JxW[point];
+			}
+		}
+		copy_data.value_estimator += square_norm_over_bdary_face;
+	};
+
+	//Working on interior faces
+	const auto face_worker = [&](const Iterator &cell,
+								 const unsigned int &f,
+								 const unsigned int &sf,
+								 const Iterator &ncell,
+								 const unsigned int &nf,
+								 const unsigned int &nsf,
+								 ScratchData<dim> &scratch_data,
+								 CopyData &copy_data)
+	{
+		FEInterfaceValues<dim> &fe_iv = scratch_data.fe_interface_values;
+		fe_iv.reinit(cell, f, sf, ncell, nf, nsf);
+
+		copy_data.face_data.emplace_back();
+		CopyDataFace &copy_data_face = copy_data.face_data.back();
+		copy_data_face.cell_indices[0] = cell->active_cell_index();
+		copy_data_face.cell_indices[1] = ncell->active_cell_index();
+
+		const auto &q_points = fe_iv.get_quadrature_points();
+		const unsigned n_q_points = q_points.size();
+		const unsigned int n_dofs = fe_iv.n_current_interface_dofs();
+
+		copy_data.cell_reconstruction_rhs.reinit(n_dofs); //daghe n'ocio nel reinit di CopyData TODO
+
+		const std::vector<double> &JxW = fe_iv.get_JxW_values();
+		std::vector<double> g(n_q_points);
+
+		std::vector<double> jump(n_q_points);
+		get_function_jump(fe_iv, solution, jump);
+
+		const std::vector<Tensor<1, dim>> &normals = fe_iv.get_normal_vectors();
+
+		for (unsigned int point = 0; point < n_q_points; ++point)
+		{
+			const double beta_dot_n = beta(q_points[point]) * normals[point];
+			for (unsigned int i = 0; i < n_dofs; ++i)
+			{
+				if (beta_dot_n < 0)
+				{
+					copy_data.cell_reconstruction_rhs(i) += beta_dot_n *
+															jump[point] *
+															fe_iv.shape_value(true, i, point) *
+															JxW[point];
+				}
+			}
+		}
+
+		double error_jump_square{0.0};
+		for (unsigned int point = 0; point < n_q_points; ++point)
+		{
+			const double beta_dot_n = beta(q_points[point]) * normals[point];
+			if (beta_dot_n < 0)
+			{
+				error_jump_square += std::abs(beta_dot_n) * jump[point] * jump[point] * JxW[point];
+			}
+		}
+
+		// copy_data.value = error_jump_square;
+		copy_data_face.values[0] = error_jump_square;
+		copy_data_face.values[1] = copy_data_face.values[0];
+	};
 
 
 	ScratchData<dim> scratch_data(mapping, *fe, QGauss<dim>{fe->tensor_degree() + 1},
 								  QGauss<dim - 1>{fe->tensor_degree() + 1});
-	CopyData copy_data;
-
 
 	const auto copier = [&](const auto &copy_data)
 	{
@@ -808,33 +1032,23 @@ void AdvectionReaction<dim>::compute_local_projection_and_estimate(){
 			// std::cout << copy_data.cell_index << "\n";
 			error_indicator_per_cell[copy_data.cell_index] += copy_data.value_estimator;
 		}
-		
+		for (auto &cdf : copy_data.face_data)
+		{
+			for (unsigned int j = 0; j < 2; ++j)
+			{
+				error_indicator_per_cell[cdf.cell_indices[j]] += cdf.values[j];
+			}
+		}
 	};
 
-
-	
 	// Here, we finally handle the assembly of the MASS matrix. We pass in ScratchData and
 	// CopyData objects
+	CopyData copy_data;
 	MeshWorker::mesh_loop(dof_handler.begin_active(), dof_handler.end(),
 						  cell_worker, copier, scratch_data, copy_data,
-						  MeshWorker::assemble_own_cells);
-
-
-
-
-
-
+						  MeshWorker::assemble_own_cells | MeshWorker::assemble_boundary_faces | MeshWorker::assemble_own_interior_faces_once,
+						  boundary_worker, face_worker);
 }
-
-
-
-
-
-
-
-
-
-
 
 //Usual run functions, running over several refinement cycles
 template <int dim>
@@ -866,24 +1080,21 @@ void AdvectionReaction<dim>::run()
 		solve();
 		compute_error();
 		output_results(cycle);
-		// energy_errors.emplace_back(compute_energy_norm());
-		// dofs_hist.emplace_back(triangulation.n_active_cells());
-
+		energy_errors.emplace_back(compute_energy_norm());
+		dofs_hist.emplace_back(triangulation.n_active_cells());
 	}
 
 	error_table.output_table(std::cout);
 
-	// std::cout << "Error rate in energy norm"
-	// 		  << "\n";
-	// std::vector<double> rate_energy;
-	// for (unsigned int i = 0; i < n_refinement_cycles; ++i)
-	// {
-	// 	std::cout << "Cycle " << i << "\t" << energy_errors[i] << "\t";
-	// 	i >= 1 ? rate_energy.push_back(dim* std::log2(energy_errors[i - 1] / energy_errors[i]) / std::log2(dofs_hist[i] / dofs_hist[i - 1])) : rate_energy.push_back(.0);
-	// 	std::cout << rate_energy[i] << "\n";
-	// }
-
-
+	std::cout << "Error rate in energy norm"
+			  << "\n";
+	std::vector<double> rate_energy;
+	for (unsigned int i = 0; i < n_refinement_cycles; ++i)
+	{
+		std::cout << "Cycle " << i << "\t" << energy_errors[i] << "\t";
+		i >= 1 ? rate_energy.push_back(dim* std::log2(energy_errors[i - 1] / energy_errors[i]) / std::log2(dofs_hist[i] / dofs_hist[i - 1])) : rate_energy.push_back(.0);
+		std::cout << rate_energy[i] << "\n";
+	}
 }
 
 template class AdvectionReaction<2>;

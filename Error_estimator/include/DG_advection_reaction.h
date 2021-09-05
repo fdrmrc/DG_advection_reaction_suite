@@ -29,6 +29,7 @@
 
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/fe/fe_dgq.h>
+#include <deal.II/fe/fe_q.h>
 // This header is needed for FEInterfaceValues to compute integrals on
 // interfaces:
 #include <deal.II/fe/fe_interface_values.h>
@@ -83,9 +84,13 @@ public:
 
 	//private: //define usual private members
 protected:
+	
+	
+	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
 	void setup_system();
 	void assemble_system();
 	void solve();
+	void compute_reconstruction_over_cell(const Iterator &cell);
 	void refine_grid();
 	void output_results(const unsigned int cycle) const;
 	void compute_error();
@@ -98,7 +103,9 @@ protected:
 	// Furthermore we want to use DG elements.
 	std::unique_ptr<FE_DGQ<dim>> fe;
 	DoFHandler<dim> dof_handler;
+	// DoFHandler<dim> dof_handler_continuous;
 
+	// FE_Q<dim> fe_continuous;
 
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
@@ -109,17 +116,20 @@ protected:
 	Vector<double> energy_norm_square_per_cell;
 	Vector<double> error_indicator_per_cell; 
 
-
 	//Parameter handling
 	FunctionParser<dim> exact_solution;
+	FunctionParser<dim> boundary_conditions;
 	FunctionParser<dim> rhs;
+	FunctionParser<dim> advection_coeff;
 	
 
 
 
 	unsigned int fe_degree = 1; //high order only for convergence tests
 
-	std::string exact_solution_expression = "tanh(100*(x+y-0.5)) #exp(x)*sin(y)"; //internal layer solution
+	std::string exact_solution_expression = "tanh(100*(x+y-0.5))"; //internal layer solution
+	std::string advection_coefficient_expression = "0.0";
+	std::string boundary_conditions_expression = "tanh(100*x + 100*y - 50.0)";
 	std::map<std::string, double> constants;
 	std::string output_filename = "DG_estimator";
 	ParsedConvergenceTable error_table;
@@ -131,9 +141,15 @@ protected:
 	std::string refinement = "residual";
 	double theta = 0.5; //default is 0.5 so that I have classical upwind flux
 
-	double advection_coefficient = 0.0; //no reaction term
+	// double advection_coefficient = 0.0; //no reaction term
+	
+
+
 
 	std::string rhs_expression = "-200*tanh(100*x + 100*y - 50.0)^2 + tanh(100*x + 100*y - 50.0) + 200";
+
+
+
 
 	template <typename Integral>
 	friend class DG_upwind_Tester;   
