@@ -1,10 +1,3 @@
-/*
- * DG_upwind.h
- *
- *  Created on: 6 Aug 2021
- *      Author: marcofeder
- */
-
 #ifndef INCLUDE_DG_UPWIND_H_
 #define INCLUDE_DG_UPWIND_H_
 
@@ -61,8 +54,6 @@
 #include <iostream>
 #include <fstream>
 
-// template <typename Integral>
-// class DG_upwind_Tester;
 
 //Simple struct used only for throwing an exception when theta parameter is not okay.
 struct theta_exc{
@@ -83,7 +74,7 @@ public:
 	void parse_string(const std::string& parameters);
 
 	//private: //define usual private members
-protected:
+private:
 	
 	
 	using Iterator = typename DoFHandler<dim>::active_cell_iterator;
@@ -103,16 +94,13 @@ protected:
 	// Furthermore we want to use DG elements.
 	std::unique_ptr<FE_DGQ<dim>> fe;
 	DoFHandler<dim> dof_handler;
-	// DoFHandler<dim> dof_handler_continuous;
 
-	// FE_Q<dim> fe_continuous;
 
 	SparsityPattern sparsity_pattern;
 	SparseMatrix<double> system_matrix;
 
 	Vector<double> solution;
 	Vector<double> right_hand_side;
-	// mutable ConvergenceTable convergence_table; //specified mutable as it is in the const-marked method output_results
 	Vector<double> energy_norm_square_per_cell;
 	Vector<double> error_indicator_per_cell; 
 
@@ -128,31 +116,20 @@ protected:
 	unsigned int fe_degree = 1; //high order only for convergence tests
 
 	std::string exact_solution_expression = "tanh(100*(x+y-0.5))"; //internal layer solution
+	std::string rhs_expression = "-200*tanh(100*x + 100*y - 50.0)^2 + tanh(100*x + 100*y - 50.0) + 200";
 	std::string advection_coefficient_expression = "0.0";
 	std::string boundary_conditions_expression = "tanh(100*x + 100*y - 50.0)";
-	std::map<std::string, double> constants;
+	std::string refinement = "residual";
 	std::string output_filename = "DG_estimator";
+	std::map<std::string, double> constants;
 	ParsedConvergenceTable error_table;
 
 	bool use_direct_solver = true;
 	unsigned int n_refinement_cycles = 6;
 	unsigned int n_global_refinements = 2;
-	// bool global_refinement = true;
-	std::string refinement = "residual";
 	double theta = 0.5; //default is 0.5 so that I have classical upwind flux
 
-	// double advection_coefficient = 0.0; //no reaction term
-	
 
-
-
-	std::string rhs_expression = "-200*tanh(100*x + 100*y - 50.0)^2 + tanh(100*x + 100*y - 50.0) + 200";
-
-
-
-
-	template <typename Integral>
-	friend class DG_upwind_Tester;   
 
 };
 
